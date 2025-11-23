@@ -3,7 +3,7 @@
  * Plugin Name:       Microsoft Azure Storage for WordPress
  * Plugin URI:        https://wordpress.org/plugins/windows-azure-storage/
  * Description:       Use the Microsoft Azure Storage service to host your website's media files.
- * Version:           4.5.2
+ * Version:           5.0.0
  * Requires at least: 6.6
  * Requires PHP:      8.0
  * Author:            10up, Microsoft Open Technologies
@@ -62,7 +62,7 @@
 define( 'MSFT_AZURE_PLUGIN_PATH', plugin_dir_path( __FILE__ ) );
 define( 'MSFT_AZURE_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 define( 'MSFT_AZURE_PLUGIN_LEGACY_MEDIA_URL', get_admin_url( get_current_blog_id(), 'media-upload.php' ) );
-define( 'MSFT_AZURE_PLUGIN_VERSION', '4.5.2' );
+define( 'MSFT_AZURE_PLUGIN_VERSION', '5.0.0' );
 
 /**
  * Get the minimum version of PHP required by this plugin.
@@ -1026,16 +1026,18 @@ function windows_azure_storage_query_azure_attachments() {
 			continue;
 		}
 
-		$is_image = ( false !== strpos( $blob_properties->getContentType(), 'image/' ) );
+		$content_type   = isset( $blob_properties['Content-Type'] ) ? $blob_properties['Content-Type'] : '';
+		$content_length = isset( $blob_properties['Content-Length'] ) ? $blob_properties['Content-Length'] : 0;
+		$is_image       = ( false !== strpos( $content_type, 'image/' ) );
 
 		$blob_info = array(
 			'id'                    => base64_encode( $blob_name ),
 			'uploading'             => false,
 			'filename'              => $blob_name,
 			'dateFormatted'         => Windows_Azure_Helper::get_formatted_date_for_blob( $blob_properties ),
-			'icon'                  => $is_image ? Windows_Azure_Helper::get_full_blob_url( $blob_name ) : wp_mime_type_icon( $blob_properties->getContentType() ),
+			'icon'                  => $is_image ? Windows_Azure_Helper::get_full_blob_url( $blob_name ) : wp_mime_type_icon( $content_type ),
 			'url'                   => Windows_Azure_Helper::get_full_blob_url( $blob_name ),
-			'filesizeHumanReadable' => size_format( $blob_properties->getContentLength() ),
+			'filesizeHumanReadable' => size_format( $content_length ),
 			'isImage'               => $is_image,
 		);
 

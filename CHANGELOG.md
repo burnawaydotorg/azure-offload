@@ -4,6 +4,21 @@ All notable changes to this project will be documented in this file, per [the Ke
 
 ## [Unreleased] - TBD
 
+## [5.0.0] - 2025-01-23
+### Changed
+- **BREAKING:** Removed deprecated `microsoft/azure-storage-blob` and `microsoft/azure-storage-common` SDK dependencies (retired by Microsoft on March 17, 2024).
+- Modernized Azure Blob Storage integration using direct REST API calls via `wp_remote_request()` for full WordPress compatibility.
+- Updated Azure Blob Storage REST API version from `2020-04-08` to `2024-11-04` (latest stable version).
+- Refactored all blob operations to use WordPress HTTP API instead of deprecated Azure SDK.
+- Updated response classes to parse XML responses directly instead of relying on SDK objects.
+- Improved code maintainability by removing external SDK dependency and using modern WordPress standards.
+
+### Technical Details
+- All Azure Blob Storage operations now use direct REST API calls with proper authentication signatures.
+- Custom XML parsing for list operations (containers and blobs).
+- Maintained backward compatibility with existing plugin hooks and filters.
+- No changes required for end users - all functionality remains the same.
+
 ## [4.5.2] - 2025-10-29
 ### Security
 - Add capability check when replacing media to prevent privilege escalation by authenticated users (props [@peterwilsoncc](https://github.com/peterwilsoncc), [@dkotter](https://github.com/dkotter) via [GHSA-pwm5-mwxv-fjrh](https://github.com/10up/windows-azure-storage/security/advisories/GHSA-pwm5-mwxv-fjrh), [CVE-2025-10749](https://www.cve.org/CVERecord?id=CVE-2025-10749))

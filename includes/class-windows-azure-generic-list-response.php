@@ -1,13 +1,10 @@
 <?php
 
-use MicrosoftAzure\Storage\Blob\Models\ListContainersResult;
-use MicrosoftAzure\Storage\Blob\Models\ListBlobsResult;
-
 /**
  * Microsoft Azure Storage REST API list containers response.
  *
- * Version: 4.0.0
- * Author: Microsoft Open Technologies, Inc.
+ * Version: 5.0.0
+ * Author: Microsoft Open Technologies, Inc., 10up
  * Author URI: http://www.microsoft.com/
  * License: BSD-2-Clause
  *
@@ -16,9 +13,9 @@ use MicrosoftAzure\Storage\Blob\Models\ListBlobsResult;
  * Redistribution and use in source and binary forms, with or without modification,
  * are permitted provided that the following conditions are met:
  * Redistributions of source code must retain the above copyright notice, this list
- * of conditions and the following disclaimer.
+ * of conditions and the disclaimer.
  * Redistributions in binary form must reproduce the above copyright notice, this
- * list of conditions  and the following disclaimer in the documentation and/or
+ * list of conditions  and the disclaimer in the documentation and/or
  * other materials provided with the distribution.
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
  * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
@@ -31,7 +28,7 @@ use MicrosoftAzure\Storage\Blob\Models\ListBlobsResult;
  * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN
  * IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
- * PHP Version 5
+ * PHP Version 8
  *
  * @category  WordPress_Plugin
  * @package   Windows_Azure_Storage_For_WordPress
@@ -39,7 +36,7 @@ use MicrosoftAzure\Storage\Blob\Models\ListBlobsResult;
  * @copyright Microsoft Open Technologies, Inc.
  * @license   BSD-2-Clause, (http://www.opensource.org/licenses/bsd-license.php)
  * @link      http://www.microsoft.com
- * @since     4.0.0
+ * @since     5.0.0
  */
 abstract class Windows_Azure_Generic_List_Response implements Iterator {
 
@@ -107,22 +104,23 @@ abstract class Windows_Azure_Generic_List_Response implements Iterator {
 	protected $_path;
 
 	/**
-	 * Windows_Azure_List_Containers_Response constructor.
+	 * Windows_Azure_Generic_List_Response constructor.
 	 *
-	 * @param ListContainersResult | ListBlobsResult $items Array of results.
+	 * @param string $next_marker Next marker from Azure API.
 	 * @param string $prefix Search prefix.
 	 * @param int $max_results Max results per one request.
 	 * @param string $path Optional request path.
 	 *
-	 * @since 4.0.0
+	 * @since 5.0.0
 	 *
 	 */
-	public function __construct( $items, $prefix = '', $max_results = Windows_Azure_Rest_Api_Client::API_REQUEST_BULK_SIZE, $path = '' ) {
+	public function __construct( $next_marker = '', $prefix = '', $max_results = Windows_Azure_Rest_Api_Client::API_REQUEST_BULK_SIZE, $path = '' ) {
 		$this->_position    = 0;
 		$this->_items       = array();
 		$this->_max_results = $max_results;
 		$this->_prefix      = $prefix;
 		$this->_path        = $path;
+		$this->_next_marker = $next_marker;
 	}
 
 
