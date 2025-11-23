@@ -143,6 +143,9 @@ require_once MSFT_AZURE_PLUGIN_PATH . 'vendor/autoload.php';
 // Check prerequisite for plugin.
 register_activation_hook( __FILE__, 'windows_azure_plugin_check_prerequisite' );
 
+// Database upgrade routine.
+add_action( 'plugins_loaded', 'windows_azure_storage_db_upgrade' );
+
 add_action( 'plugins_loaded', 'windows_azure_storage_load_textdomain' );
 add_action( 'admin_menu', 'windows_azure_storage_plugin_menu' );
 add_filter( 'media_buttons', 'windows_azure_storage_media_buttons' );
@@ -259,6 +262,61 @@ function windows_azure_plugin_check_prerequisite() {
 		deactivate_plugins( plugin_basename( __FILE__ ) );
 		wp_die( esc_html__( 'Microsoft Azure Storage for WordPress requires at least WordPress 5.7', 'windows-azure-storage' ) );
 	}
+}
+
+/**
+ * Database upgrade routine.
+ *
+ * Adds necessary indexes and performs database schema updates.
+ *
+ * @since 5.0.0
+ * @return void
+ */
+function windows_azure_storage_db_upgrade() {
+	$current_db_version = get_option( 'windows_azure_storage_db_version', '0' );
+	$target_db_version  = '5.0.0';
+
+	// Skip if already upgraded.
+	if ( version_compare( $current_db_version, $target_db_version, '>=' ) ) {
+		return;
+	}
+
+	global $wpdb;
+
+	// Version 5.0.0: Add index on _azure_offload_status meta_key for performance.
+	if ( version_compare( $current_db_version, '5.0.0', '<' ) ) {
+		// Check if index already exists.
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$index_exists = $wpdb->get_var(
+			$wpdb->prepare(
+				"SELECT COUNT(1) FROM INFORMATION_SCHEMA.STATISTICS
+				WHERE table_schema = %s
+				AND table_name = %s
+				AND index_name = %s",
+				DB_NAME,
+				$wpdb->postmeta,
+				'idx_azure_offload_status'
+			)
+		);
+
+		if ( ! $index_exists ) {
+			// Add index for better query performance on large media libraries.
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.DirectDatabaseQuery.SchemaChange
+			$wpdb->query(
+				"CREATE INDEX idx_azure_offload_status
+				ON {$wpdb->postmeta}(meta_key(191), meta_value(20))
+				USING BTREE"
+			);
+
+			Azure_Debug_Logger::info(
+				'Database upgrade: Added index idx_azure_offload_status to postmeta table',
+				array( 'version' => '5.0.0' )
+			);
+		}
+	}
+
+	// Update the stored version.
+	update_option( 'windows_azure_storage_db_version', $target_db_version );
 }
 
 /**
