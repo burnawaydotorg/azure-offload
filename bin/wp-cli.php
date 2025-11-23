@@ -367,6 +367,218 @@ class Windows_Azure_Storage_CLI extends WP_CLI_Command {
 
 		$table->display_items( $items );
 	}
+
+	/**
+	 * Bulk offload media to Azure Storage.
+	 *
+	 * @param array $args       Command arguments.
+	 * @param array $assoc_args Command options.
+	 *
+	 * @return void
+	 *
+	 * ## OPTIONS
+	 *
+	 * [--limit=<number>]
+	 * : Maximum number of attachments to offload. Default: all.
+	 *
+	 * [--force]
+	 * : Force re-upload of already offloaded items.
+	 *
+	 * [--remove-local]
+	 * : Remove local files after successful upload.
+	 *
+	 * [--pending-only]
+	 * : Only offload items not yet offloaded. Default: true.
+	 *
+	 * @subcommand bulk-offload
+	 *
+	 * ## EXAMPLES
+	 *
+	 *     # Offload all pending media
+	 *     wp windows-azure-storage bulk-offload
+	 *
+	 *     # Offload 100 items and remove local files
+	 *     wp windows-azure-storage bulk-offload --limit=100 --remove-local
+	 *
+	 *     # Force re-upload all media
+	 *     wp windows-azure-storage bulk-offload --force
+	 */
+	public function bulk_offload( $args, $assoc_args ) {
+		$assoc_args = wp_parse_args( $assoc_args, array(
+			'limit'        => null,
+			'force'        => false,
+			'remove-local' => false,
+			'pending-only' => true,
+		) );
+
+		// Check if Action Scheduler is available.
+		if ( ! function_exists( 'as_enqueue_async_action' ) || ! class_exists( 'ActionScheduler' ) ) {
+			WP_CLI::error( __( 'Action Scheduler is required for bulk offload. Please install WooCommerce or another plugin that includes Action Scheduler.', 'windows-azure-storage' ) );
+			return;
+		}
+
+		// Build query arguments.
+		$query_args = array(
+			'post_type'      => 'attachment',
+			'post_status'    => 'inherit',
+			'posts_per_page' => ! empty( $assoc_args['limit'] ) ? intval( $assoc_args['limit'] ) : -1,
+			'fields'         => 'ids',
+		);
+
+		// Only get pending items if not forcing.
+		if ( $assoc_args['pending-only'] && ! $assoc_args['force'] ) {
+			$query_args['meta_query'] = array(
+				'relation' => 'OR',
+				array(
+					'key'     => '_azure_offload_status',
+					'compare' => 'NOT EXISTS',
+				),
+				array(
+					'key'     => '_azure_offload_status',
+					'value'   => 'offloaded',
+					'compare' => '!=',
+				),
+			);
+		}
+
+		WP_CLI::log( __( 'Querying attachments...', 'windows-azure-storage' ) );
+
+		$attachment_query = new WP_Query( $query_args );
+		$attachment_ids   = $attachment_query->posts;
+
+		if ( empty( $attachment_ids ) ) {
+			WP_CLI::warning( __( 'No attachments found to offload.', 'windows-azure-storage' ) );
+			return;
+		}
+
+		WP_CLI::success(
+			sprintf(
+				// translators: %d is the number of attachments.
+				__( 'Found %d attachments to offload.', 'windows-azure-storage' ),
+				count( $attachment_ids )
+			)
+		);
+
+		// Prepare options.
+		$options = array(
+			'force'        => $assoc_args['force'],
+			'remove_local' => $assoc_args['remove-local'],
+		);
+
+		// Initialize background processor.
+		$processor = new Azure_Background_Processor();
+
+		// Start bulk offload.
+		$result = $processor->start_bulk_offload( $attachment_ids, $options );
+
+		if ( is_wp_error( $result ) ) {
+			WP_CLI::error( $result->get_error_message() );
+			return;
+		}
+
+		WP_CLI::success( __( 'Bulk offload started. Run "wp windows-azure-storage offload-status" to check progress.', 'windows-azure-storage' ) );
+	}
+
+	/**
+	 * Check bulk offload status.
+	 *
+	 * @param array $args       Command arguments.
+	 * @param array $assoc_args Command options.
+	 *
+	 * @return void
+	 *
+	 * @subcommand offload-status
+	 *
+	 * ## EXAMPLES
+	 *
+	 *     wp windows-azure-storage offload-status
+	 */
+	public function offload_status( $args, $assoc_args ) {
+		$progress = get_option( 'azure_bulk_offload_progress', array() );
+
+		if ( empty( $progress ) ) {
+			WP_CLI::warning( __( 'No active bulk offload operation found.', 'windows-azure-storage' ) );
+			return;
+		}
+
+		$percentage = $progress['total'] > 0 ? round( ( $progress['processed'] / $progress['total'] ) * 100, 1 ) : 0;
+
+		WP_CLI::log( '' );
+		WP_CLI::log( __( 'Bulk Offload Status:', 'windows-azure-storage' ) );
+		WP_CLI::log( str_repeat( '=', 50 ) );
+		WP_CLI::log(
+			sprintf(
+				// translators: %s is the status.
+				__( 'Status:      %s', 'windows-azure-storage' ),
+				strtoupper( $progress['status'] )
+			)
+		);
+		WP_CLI::log(
+			sprintf(
+				// translators: %s is the percentage.
+				__( 'Progress:    %s%%', 'windows-azure-storage' ),
+				$percentage
+			)
+		);
+		WP_CLI::log(
+			sprintf(
+				// translators: %1$d is processed count, %2$d is total count.
+				__( 'Processed:   %1$d of %2$d', 'windows-azure-storage' ),
+				$progress['processed'],
+				$progress['total']
+			)
+		);
+		WP_CLI::log(
+			sprintf(
+				// translators: %d is successful count.
+				__( 'Successful:  %d', 'windows-azure-storage' ),
+				$progress['successful']
+			)
+		);
+		WP_CLI::log(
+			sprintf(
+				// translators: %d is failed count.
+				__( 'Failed:      %d', 'windows-azure-storage' ),
+				$progress['failed']
+			)
+		);
+		WP_CLI::log(
+			sprintf(
+				// translators: %d is skipped count.
+				__( 'Skipped:     %d', 'windows-azure-storage' ),
+				$progress['skipped']
+			)
+		);
+		WP_CLI::log( str_repeat( '=', 50 ) );
+		WP_CLI::log( '' );
+
+		// Show recent errors if any.
+		if ( ! empty( $progress['errors'] ) ) {
+			$recent_errors = array_slice( $progress['errors'], -5 );
+			WP_CLI::warning(
+				sprintf(
+					// translators: %d is error count.
+					__( 'Recent errors (%d total):', 'windows-azure-storage' ),
+					count( $progress['errors'] )
+				)
+			);
+			foreach ( $recent_errors as $error ) {
+				WP_CLI::log(
+					sprintf(
+						// translators: %1$d is attachment ID, %2$s is error message.
+						__( '  - Attachment #%1$d: %2$s', 'windows-azure-storage' ),
+						$error['attachment_id'],
+						$error['message']
+					)
+				);
+			}
+			WP_CLI::log( '' );
+		}
+
+		if ( 'completed' === $progress['status'] ) {
+			WP_CLI::success( __( 'Bulk offload completed!', 'windows-azure-storage' ) );
+		}
+	}
 }
 
 WP_CLI::add_command( 'windows-azure-storage', 'Windows_Azure_Storage_CLI' );

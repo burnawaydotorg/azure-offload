@@ -122,6 +122,8 @@ require_once ABSPATH . 'wp-admin/includes/class-wp-filesystem-direct.php';
 require_once MSFT_AZURE_PLUGIN_PATH . 'includes/class-windows-azure-wp-filesystem-direct.php';
 require_once MSFT_AZURE_PLUGIN_PATH . 'includes/class-windows-azure-helper.php';
 require_once MSFT_AZURE_PLUGIN_PATH . 'includes/class-windows-azure-replace-media.php';
+require_once MSFT_AZURE_PLUGIN_PATH . 'includes/class-azure-background-processor.php';
+require_once MSFT_AZURE_PLUGIN_PATH . 'includes/class-azure-bulk-offload-ui.php';
 
 if ( defined( 'WP_CLI' ) && WP_CLI ) {
 	require_once MSFT_AZURE_PLUGIN_PATH . 'bin/wp-cli.php';
@@ -201,6 +203,10 @@ if ( function_exists( 'wp_calculate_image_srcset' ) ) {
 
 // Load media replace module
 new Windows_Azure_Replace_Media();
+
+// Initialize background processing and bulk offload UI
+$azure_background_processor = new Azure_Background_Processor();
+new Azure_Bulk_Offload_UI( $azure_background_processor );
 
 /**
  * Loads text domain.
