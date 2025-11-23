@@ -691,13 +691,24 @@ class Windows_Azure_Helper {
 	/**
 	 * Return formatted string for given blob.
 	 *
-	 * @param \MicrosoftAzure\Storage\Blob\Models\BlobProperties $blob_properties
+	 * @param array|string $blob_properties Blob properties array or last-modified header string.
 	 *
 	 * @return string
 	 *
-	 * @since 4.4.0
+	 * @since 5.0.0
 	 */
 	public static function get_formatted_date_for_blob( $blob_properties ) {
-		return sprintf( '%s %s', date_i18n( 'D, j M Y H:i:s',  $blob_properties->getLastModified()->getTimestamp() ), $blob_properties->getLastModified()->getTimezone()->getName() );
+		// Handle array format (from new REST API implementation)
+		if ( is_array( $blob_properties ) && isset( $blob_properties[ Windows_Azure_Rest_Api_Client::API_HEADER_LAST_MODIFIED ] ) ) {
+			return $blob_properties[ Windows_Azure_Rest_Api_Client::API_HEADER_LAST_MODIFIED ];
+		}
+
+		// Handle string format (direct header value)
+		if ( is_string( $blob_properties ) ) {
+			return $blob_properties;
+		}
+
+		// Fallback
+		return '';
 	}
 }

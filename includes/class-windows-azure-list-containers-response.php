@@ -1,12 +1,10 @@
 <?php
 
-use MicrosoftAzure\Storage\Blob\Models\ListContainersResult;
-
 /**
  * Microsoft Azure Storage REST API list containers response.
  *
- * Version: 4.0.0
- * Author: Microsoft Open Technologies, Inc.
+ * Version: 5.0.0
+ * Author: Microsoft Open Technologies, Inc., 10up
  * Author URI: http://www.microsoft.com/
  * License: BSD-2-Clause
  *
@@ -15,9 +13,9 @@ use MicrosoftAzure\Storage\Blob\Models\ListContainersResult;
  * Redistribution and use in source and binary forms, with or without modification,
  * are permitted provided that the following conditions are met:
  * Redistributions of source code must retain the above copyright notice, this list
- * of conditions and the following disclaimer.
+ * of conditions and the disclaimer.
  * Redistributions in binary form must reproduce the above copyright notice, this
- * list of conditions  and the following disclaimer in the documentation and/or
+ * list of conditions  and the disclaimer in the documentation and/or
  * other materials provided with the distribution.
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
  * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
@@ -30,7 +28,7 @@ use MicrosoftAzure\Storage\Blob\Models\ListContainersResult;
  * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN
  * IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
- * PHP Version 5
+ * PHP Version 8
  *
  * @category  WordPress_Plugin
  * @package   Windows_Azure_Storage_For_WordPress
@@ -38,28 +36,43 @@ use MicrosoftAzure\Storage\Blob\Models\ListContainersResult;
  * @copyright Microsoft Open Technologies, Inc.
  * @license   BSD-2-Clause, (http://www.opensource.org/licenses/bsd-license.php)
  * @link      http://www.microsoft.com
- * @since     4.0.0
+ * @since     5.0.0
  */
 class Windows_Azure_List_Containers_Response extends Windows_Azure_Generic_List_Response {
 
 	/**
 	 * Windows_Azure_List_Containers_Response constructor.
 	 *
-	 * @param ListContainersResult $containers Container response.
+	 * @param string|SimpleXMLElement $xml_response XML response from Azure.
 	 * @param string $prefix Search prefix.
 	 * @param int $max_results Max results per one request.
 	 * @param string $path Unused.
 	 *
-	 * @since 4.0.0
+	 * @since 5.0.0
 	 *
 	 */
-	public function __construct( ListContainersResult $containers, $prefix = '', $max_results = Windows_Azure_Rest_Api_Client::API_REQUEST_BULK_SIZE, $path = '' ) {
-		parent::__construct( $containers, $prefix, $max_results, $path );
+	public function __construct( $xml_response, $prefix = '', $max_results = Windows_Azure_Rest_Api_Client::API_REQUEST_BULK_SIZE, $path = '' ) {
+		// Parse XML response
+		if ( is_string( $xml_response ) ) {
+			libxml_use_internal_errors( true );
+			$xml = simplexml_load_string( $xml_response );
+			if ( false === $xml ) {
+				throw new Exception( 'Failed to parse XML response' );
+			}
+		} else {
+			$xml = $xml_response;
+		}
 
-		$containers = $containers->getContainers();
+		// Extract next marker if present
+		$next_marker = isset( $xml->NextMarker ) ? (string) $xml->NextMarker : '';
 
-		foreach ( $containers as $container ) {
-			$this->_items[] = [ 'Name' => $container->getName() ];
+		parent::__construct( $next_marker, $prefix, $max_results, $path );
+
+		// Parse containers
+		if ( isset( $xml->Containers->Container ) ) {
+			foreach ( $xml->Containers->Container as $container ) {
+				$this->_items[] = [ 'Name' => (string) $container->Name ];
+			}
 		}
 	}
 
