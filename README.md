@@ -14,6 +14,8 @@ For more details on Microsoft Azure Storage, please visit the [Microsoft Azure w
 
 For more details on configuring a Microsoft Azure Storage account and on using the plugin with the Block Editor or Classic Editor, please visit the [user guide](/UserGuide.md).
 
+For WP-CLI command documentation, including bulk offload operations, see [CLI.md](/CLI.md).
+
 ## Requirements
 
 * PHP 8.0+ (For PHP 7.4 support you need to use 4.3.5)
@@ -34,6 +36,39 @@ For multisites or to enforce Azure Blob Storage settings, you can define the fol
 * MICROSOFT_AZURE_USE_FOR_DEFAULT_UPLOAD - boolean (default false)
 * MICROSOFT_AZURE_OVERRIDE_CONTAINER_PATH - Override Container name in the Image URL , can be just "/"
 See Settings->Microsoft Azure for more information.
+
+## WP-CLI Support
+
+The plugin includes comprehensive WP-CLI commands for managing Azure Storage operations from the command line.
+
+### Quick Start
+
+```bash
+# Bulk offload all pending media to Azure
+wp windows-azure-storage bulk-offload
+
+# Check offload progress
+wp windows-azure-storage offload-status
+
+# List containers
+wp windows-azure-storage containers-list
+
+# List blobs in a container
+wp windows-azure-storage blobs-list --container=media
+```
+
+### Available Commands
+
+- **Container Management:** Create, list, and manage Azure Storage containers
+- **Blob Management:** List, view properties, and delete blobs
+- **Bulk Operations:** Offload thousands of media files in the background
+- **Progress Tracking:** Real-time status monitoring for long-running operations
+
+**Full documentation:** See [CLI.md](/CLI.md) for complete command reference, examples, and troubleshooting.
+
+**Requirements for bulk offload:** [Action Scheduler](https://actionscheduler.org/) (bundled with WooCommerce)
+
+---
 
 ## Known Issues
 
