@@ -278,7 +278,7 @@ Fork of [10up/windows-azure-storage](https://github.com/10up/windows-azure-stora
 
 **Reference:** Based on [WP-Stateless ShortPixel Addon](https://github.com/udx/wp-stateless-shortpixel-addon/)
 
-**Workflow:** Upload Original → Optimize → Upload Optimized (serve optimized by default, keep original for future use)
+**Workflow:** Create Attachment → Upload Original (tracked to WP Media ID) → Optimize → Upload Optimized → Seamless Restoration
 
 **Technical Requirements:**
 - Store **BOTH optimized AND original files** on Azure
@@ -305,10 +305,10 @@ Fork of [10up/windows-azure-storage](https://github.com/10up/windows-azure-stora
 **WordPress Hooks to Implement:**
 
 **Actions:**
-1. `wp_handle_upload` - Upload original file to Azure BEFORE ShortPixel optimization
+1. `wp_generate_attachment_metadata` (priority 5) - Upload original file to Azure AFTER attachment created, BEFORE ShortPixel optimization
 2. `shortpixel_image_optimised` - Upload optimized images to Azure (overwrites main path)
-3. `shortpixel_before_restore_image` - Download originals from Azure for restoration
-4. `shortpixel_after_restore_image` - Re-sync restored files to Azure
+3. `shortpixel_before_restore_image` - Download originals from Azure using attachment ID post meta (seamless)
+4. `shortpixel_after_restore_image` - Re-sync restored files to Azure main path
 5. Custom: `azure_synced_image` - Handle WebP file syncing after optimization
 6. Custom: `azure_sync_delete_file` - Remove WebP files from Azure when needed
 
@@ -321,26 +321,48 @@ Fork of [10up/windows-azure-storage](https://github.com/10up/windows-azure-stora
 
 **Implementation Details:**
 
-**Step 1: Upload Original BEFORE Optimization**
+**Step 1: Upload Original AFTER Attachment Created (Before Optimization)**
 ```php
-add_action( 'wp_handle_upload', 'azure_upload_original_before_optimization', 10, 2 );
+add_filter( 'wp_generate_attachment_metadata', 'azure_upload_original_before_optimization', 5, 2 );
 
-function azure_upload_original_before_optimization( $upload, $context ) {
-    // Upload original file to Azure /originals/ path
-    $file_path = $upload['file'];
-    $file_url = $upload['url'];
+function azure_upload_original_before_optimization( $metadata, $attachment_id ) {
+    // This runs AFTER attachment is created but BEFORE ShortPixel optimization
+    // Priority 5 ensures we run before ShortPixel (which typically uses priority 10)
 
-    if ( file_exists( $file_path ) ) {
-        // Determine Azure blob path for original
-        $upload_dir = wp_upload_dir();
-        $relative_path = str_replace( $upload_dir['basedir'] . '/', '', $file_path );
-        $original_blob_path = 'originals/' . $relative_path;
+    $file_path = get_attached_file( $attachment_id );
 
-        // Upload to Azure originals directory
-        azure_upload_file_to_blob( $file_path, $original_blob_path );
+    if ( ! file_exists( $file_path ) ) {
+        return $metadata;
     }
 
-    return $upload;
+    // Determine Azure blob path for original
+    $upload_dir = wp_upload_dir();
+    $relative_path = str_replace( $upload_dir['basedir'] . '/', '', $file_path );
+    $original_blob_path = 'originals/' . $relative_path;
+
+    // Upload to Azure originals directory
+    $uploaded = azure_upload_file_to_blob( $file_path, $original_blob_path );
+
+    if ( $uploaded ) {
+        // Store original blob path in post meta for easy restoration
+        update_post_meta( $attachment_id, '_azure_original_blob_path', $original_blob_path );
+        update_post_meta( $attachment_id, '_azure_has_original', true );
+
+        // Also upload original thumbnails if already generated
+        if ( ! empty( $metadata['sizes'] ) ) {
+            foreach ( $metadata['sizes'] as $size => $size_data ) {
+                $thumb_path = dirname( $file_path ) . '/' . $size_data['file'];
+                $thumb_relative = str_replace( $upload_dir['basedir'] . '/', '', $thumb_path );
+                $thumb_original_blob = 'originals/' . $thumb_relative;
+
+                if ( file_exists( $thumb_path ) ) {
+                    azure_upload_file_to_blob( $thumb_path, $thumb_original_blob );
+                }
+            }
+        }
+    }
+
+    return $metadata;
 }
 ```
 
@@ -424,43 +446,39 @@ function azure_sync_webp_files( $post_id, $optimization_data ) {
 }
 ```
 
-**Step 3: Handle Image Restoration (from Azure originals)**
+**Step 3: Seamless Restoration (Automatic via Attachment ID)**
 ```php
 add_action( 'shortpixel_before_restore_image', 'azure_download_originals_for_restore', 10, 1 );
 
 function azure_download_originals_for_restore( $attachment_id ) {
-    // Check if we have originals stored on Azure
+    // Check if we have originals stored on Azure via post meta
     $has_original = get_post_meta( $attachment_id, '_azure_has_original', true );
+    $original_blob_path = get_post_meta( $attachment_id, '_azure_original_blob_path', true );
 
-    if ( ! $has_original ) {
-        return; // No Azure originals to restore from
+    if ( ! $has_original || ! $original_blob_path ) {
+        return; // No Azure originals tracked for this attachment
     }
 
-    $metadata = wp_get_attachment_metadata( $attachment_id );
-    $upload_dir = wp_upload_dir();
-
-    if ( empty( $metadata['file'] ) ) {
-        return;
-    }
-
-    // Download original main file from Azure /originals/ path
-    $file_path = $upload_dir['basedir'] . '/' . $metadata['file'];
-    $relative_path = str_replace( $upload_dir['basedir'] . '/', '', $file_path );
-    $original_blob_path = 'originals/' . $relative_path;
-
-    // Download from Azure originals to local path
+    // Download from stored blob path - no manual lookup needed!
+    $file_path = get_attached_file( $attachment_id );
     azure_download_blob_to_file( $original_blob_path, $file_path );
 
     // Download original thumbnails
+    $metadata = wp_get_attachment_metadata( $attachment_id );
+    $upload_dir = wp_upload_dir();
+
     if ( ! empty( $metadata['sizes'] ) ) {
         foreach ( $metadata['sizes'] as $size => $size_data ) {
             $thumb_path = dirname( $file_path ) . '/' . $size_data['file'];
             $thumb_relative = str_replace( $upload_dir['basedir'] . '/', '', $thumb_path );
             $thumb_original_blob = 'originals/' . $thumb_relative;
 
+            // Download original thumbnail
             azure_download_blob_to_file( $thumb_original_blob, $thumb_path );
         }
     }
+
+    // User just clicked "Restore" in ShortPixel UI - everything else is automatic!
 }
 
 add_action( 'shortpixel_after_restore_image', 'azure_sync_restored_to_main_path', 10, 1 );
@@ -468,15 +486,11 @@ add_action( 'shortpixel_after_restore_image', 'azure_sync_restored_to_main_path'
 function azure_sync_restored_to_main_path( $attachment_id ) {
     // After restoration, the local files are now originals again
     // Upload them to the main Azure path (overwrites optimized versions)
+    $file_path = get_attached_file( $attachment_id );
     $metadata = wp_get_attachment_metadata( $attachment_id );
     $upload_dir = wp_upload_dir();
 
-    if ( empty( $metadata['file'] ) ) {
-        return;
-    }
-
     // Upload restored main file to main Azure path
-    $file_path = $upload_dir['basedir'] . '/' . $metadata['file'];
     $relative_path = str_replace( $upload_dir['basedir'] . '/', '', $file_path );
 
     if ( file_exists( $file_path ) ) {
@@ -497,6 +511,7 @@ function azure_sync_restored_to_main_path( $attachment_id ) {
 
     // Clean up optimization metadata (no longer optimized)
     delete_post_meta( $attachment_id, '_azure_shortpixel_optimized_date' );
+    // Note: Keep _azure_has_original and _azure_original_blob_path for future re-optimization
 }
 ```
 
@@ -571,16 +586,28 @@ function azure_get_original_url( $attachment_id ) {
 }
 ```
 
+**Seamless Restoration Process:**
+1. User clicks "Restore" in ShortPixel UI for attachment ID #123
+2. `shortpixel_before_restore_image` hook fires with `$attachment_id = 123`
+3. Plugin reads post meta: `_azure_original_blob_path` = `originals/2025/01/image.jpg`
+4. Downloads from Azure automatically (no manual lookup, no user intervention)
+5. ShortPixel restores the image locally
+6. `shortpixel_after_restore_image` hook fires
+7. Restored original is re-uploaded to main Azure path
+8. **Result:** User experience is identical to local-only ShortPixel - completely seamless!
+
 **Edge Cases to Handle:**
 - **Dual Storage**: Both original (in /originals/) and optimized (in main path) stored on Azure
-- **Upload Order**: Original uploaded to Azure BEFORE ShortPixel optimization runs
+- **Attachment ID Tracking**: Original uploaded AFTER attachment created (has ID), stored in post meta
+- **Upload Timing**: `wp_generate_attachment_metadata` priority 5 (before ShortPixel at priority 10)
 - **Overwrite Pattern**: Optimized version overwrites main path after optimization completes
 - **WebP Generation**: Upload .webp files alongside optimized images to main path
-- **Restoration Workflow**: Download originals from /originals/ path, restore locally, re-upload to main path
+- **Restoration Workflow**: Automatic lookup via `_azure_original_blob_path` post meta - zero manual work
 - **Ephemeral Mode**: Skip ShortPixel's local backup system entirely (we have Azure originals)
-- **Re-Optimization**: Can re-optimize from Azure originals without downloading to local first
+- **Re-Optimization**: Can re-optimize from Azure originals by downloading via stored blob path
 - **Bulk Operations**: Queue coordination via Action Scheduler for bulk optimization + offload
 - **Storage Cleanup**: Optionally delete originals from /originals/ after X days to save storage costs
+- **Missing Originals**: If `_azure_has_original` is false, gracefully skip Azure restore (use ShortPixel's backup if available)
 
 **Post Meta Fields:**
 - `_azure_has_original` (boolean) - Indicates original is stored in Azure /originals/ path
