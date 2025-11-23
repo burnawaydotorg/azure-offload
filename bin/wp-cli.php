@@ -795,6 +795,242 @@ class Windows_Azure_Storage_CLI extends WP_CLI_Command {
 		WP_CLI::log( str_repeat( '=', 50 ) );
 		WP_CLI::log( '' );
 	}
+
+	/**
+	 * Copy blobs between containers.
+	 *
+	 * @param array $args       Command arguments.
+	 * @param array $assoc_args Command options.
+	 *
+	 * @return void
+	 *
+	 * ## OPTIONS
+	 *
+	 * <source-container>
+	 * : Source container name.
+	 *
+	 * <destination-container>
+	 * : Destination container name.
+	 *
+	 * [--prefix=<prefix>]
+	 * : Only copy blobs starting with this prefix.
+	 *
+	 * [--limit=<number>]
+	 * : Maximum number of blobs to copy.
+	 *
+	 * [--update-meta]
+	 * : Update WordPress post meta after copy.
+	 *
+	 * [--delete-source]
+	 * : Delete source blobs after successful copy (use with caution).
+	 *
+	 * @subcommand container-copy
+	 *
+	 * ## EXAMPLES
+	 *
+	 *     # Copy all blobs from staging to production
+	 *     wp windows-azure-storage container-copy staging-media production-media
+	 *
+	 *     # Copy only images directory
+	 *     wp windows-azure-storage container-copy staging-media production-media --prefix=images/
+	 *
+	 *     # Copy 100 blobs and update WordPress meta
+	 *     wp windows-azure-storage container-copy staging-media production-media --limit=100 --update-meta
+	 */
+	public function container_copy( $args, $assoc_args ) {
+		list( $source_container, $destination_container ) = $args;
+
+		$options = array(
+			'prefix'        => isset( $assoc_args['prefix'] ) ? $assoc_args['prefix'] : '',
+			'limit'         => isset( $assoc_args['limit'] ) ? intval( $assoc_args['limit'] ) : -1,
+			'update_meta'   => isset( $assoc_args['update-meta'] ),
+			'delete_source' => isset( $assoc_args['delete-source'] ),
+		);
+
+		// Warning for delete-source.
+		if ( $options['delete_source'] ) {
+			WP_CLI::confirm(
+				sprintf(
+					// translators: %s is the container name.
+					__( 'Are you sure you want to DELETE source blobs from "%s" after copying? This cannot be undone.', 'windows-azure-storage' ),
+					$source_container
+				)
+			);
+		}
+
+		$copy_manager = new Azure_Container_Copy_Manager();
+
+		WP_CLI::log(
+			sprintf(
+				// translators: %1$s is source container, %2$s is destination container.
+				__( 'Copying blobs from "%1$s" to "%2$s"...', 'windows-azure-storage' ),
+				$source_container,
+				$destination_container
+			)
+		);
+
+		$result = $copy_manager->copy_container( $source_container, $destination_container, $options );
+
+		if ( is_wp_error( $result ) ) {
+			WP_CLI::error( $result->get_error_message() );
+			return;
+		}
+
+		WP_CLI::success(
+			sprintf(
+				// translators: %1$d is number copied, %2$d is number failed.
+				__( 'Copy complete: %1$d succeeded, %2$d failed.', 'windows-azure-storage' ),
+				$result['copied'],
+				$result['failed']
+			)
+		);
+
+		// Show errors if any.
+		if ( ! empty( $result['errors'] ) ) {
+			WP_CLI::warning( __( 'Errors:', 'windows-azure-storage' ) );
+			foreach ( array_slice( $result['errors'], 0, 10 ) as $error ) {
+				WP_CLI::log( '  - ' . $error );
+			}
+		}
+	}
+
+	/**
+	 * Migrate media library to a new container.
+	 *
+	 * @param array $args       Command arguments.
+	 * @param array $assoc_args Command options.
+	 *
+	 * @return void
+	 *
+	 * ## OPTIONS
+	 *
+	 * <source-container>
+	 * : Current container name.
+	 *
+	 * <destination-container>
+	 * : New container name.
+	 *
+	 * [--update-default]
+	 * : Update the default container setting in WordPress.
+	 *
+	 * @subcommand migrate-container
+	 *
+	 * ## EXAMPLES
+	 *
+	 *     # Migrate media library to new container
+	 *     wp windows-azure-storage migrate-container old-media new-media
+	 *
+	 *     # Migrate and update default container setting
+	 *     wp windows-azure-storage migrate-container old-media new-media --update-default
+	 */
+	public function migrate_container( $args, $assoc_args ) {
+		list( $source_container, $destination_container ) = $args;
+
+		$update_default = isset( $assoc_args['update-default'] );
+
+		WP_CLI::confirm(
+			sprintf(
+				// translators: %1$s is source, %2$s is destination.
+				__( 'This will copy all media from "%1$s" to "%2$s" and update WordPress post meta. Continue?', 'windows-azure-storage' ),
+				$source_container,
+				$destination_container
+			)
+		);
+
+		$copy_manager = new Azure_Container_Copy_Manager();
+
+		WP_CLI::log( __( 'Starting media library migration...', 'windows-azure-storage' ) );
+
+		$result = $copy_manager->migrate_media_library(
+			$source_container,
+			$destination_container,
+			$update_default
+		);
+
+		if ( is_wp_error( $result ) ) {
+			WP_CLI::error( $result->get_error_message() );
+			return;
+		}
+
+		WP_CLI::success(
+			sprintf(
+				// translators: %d is number of files copied.
+				__( 'Migration complete: %d files copied.', 'windows-azure-storage' ),
+				$result['copied']
+			)
+		);
+
+		if ( $update_default ) {
+			WP_CLI::log( __( 'Default container updated in WordPress settings.', 'windows-azure-storage' ) );
+		}
+	}
+
+	/**
+	 * Get container statistics.
+	 *
+	 * @param array $args       Command arguments.
+	 * @param array $assoc_args Command options.
+	 *
+	 * @return void
+	 *
+	 * ## OPTIONS
+	 *
+	 * <container>
+	 * : Container name.
+	 *
+	 * @subcommand container-stats
+	 *
+	 * ## EXAMPLES
+	 *
+	 *     wp windows-azure-storage container-stats my-media
+	 */
+	public function container_stats( $args, $assoc_args ) {
+		list( $container ) = $args;
+
+		$copy_manager = new Azure_Container_Copy_Manager();
+
+		WP_CLI::log(
+			sprintf(
+				// translators: %s is container name.
+				__( 'Getting statistics for container "%s"...', 'windows-azure-storage' ),
+				$container
+			)
+		);
+
+		$stats = $copy_manager->get_container_stats( $container );
+
+		if ( is_wp_error( $stats ) ) {
+			WP_CLI::error( $stats->get_error_message() );
+			return;
+		}
+
+		WP_CLI::log( '' );
+		WP_CLI::log( __( 'Container Statistics:', 'windows-azure-storage' ) );
+		WP_CLI::log( str_repeat( '=', 50 ) );
+		WP_CLI::log(
+			sprintf(
+				// translators: %s is container name.
+				__( 'Container:   %s', 'windows-azure-storage' ),
+				$stats['container']
+			)
+		);
+		WP_CLI::log(
+			sprintf(
+				// translators: %d is blob count.
+				__( 'Blobs:       %d', 'windows-azure-storage' ),
+				$stats['blob_count']
+			)
+		);
+		WP_CLI::log(
+			sprintf(
+				// translators: %s is formatted size.
+				__( 'Total Size:  %s', 'windows-azure-storage' ),
+				$stats['formatted_size']
+			)
+		);
+		WP_CLI::log( str_repeat( '=', 50 ) );
+		WP_CLI::log( '' );
+	}
 }
 
 WP_CLI::add_command( 'windows-azure-storage', 'Windows_Azure_Storage_CLI' );
