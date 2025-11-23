@@ -124,6 +124,7 @@ require_once MSFT_AZURE_PLUGIN_PATH . 'includes/class-windows-azure-helper.php';
 require_once MSFT_AZURE_PLUGIN_PATH . 'includes/class-windows-azure-replace-media.php';
 require_once MSFT_AZURE_PLUGIN_PATH . 'includes/class-azure-background-processor.php';
 require_once MSFT_AZURE_PLUGIN_PATH . 'includes/class-azure-bulk-offload-ui.php';
+require_once MSFT_AZURE_PLUGIN_PATH . 'includes/class-azure-local-file-manager.php';
 require_once MSFT_AZURE_PLUGIN_PATH . 'includes/class-azure-media-library-integration.php';
 
 if ( defined( 'WP_CLI' ) && WP_CLI ) {

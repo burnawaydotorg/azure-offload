@@ -29,12 +29,20 @@ class Azure_Media_Library_Integration {
 	private $background_processor;
 
 	/**
+	 * File manager instance.
+	 *
+	 * @var Azure_Local_File_Manager
+	 */
+	private $file_manager;
+
+	/**
 	 * Constructor.
 	 *
 	 * @param Azure_Background_Processor $background_processor Background processor instance.
 	 */
 	public function __construct( $background_processor ) {
 		$this->background_processor = $background_processor;
+		$this->file_manager = new Azure_Local_File_Manager();
 
 		// Media Library list table customizations.
 		add_filter( 'manage_media_columns', array( $this, 'add_azure_column' ) );
@@ -147,6 +155,8 @@ class Azure_Media_Library_Integration {
 	public function add_bulk_actions( $actions ) {
 		$actions['azure_offload'] = __( 'Offload to Azure', 'windows-azure-storage' );
 		$actions['azure_remove'] = __( 'Remove from Azure', 'windows-azure-storage' );
+		$actions['azure_remove_local'] = __( 'Remove Local Files', 'windows-azure-storage' );
+		$actions['azure_download'] = __( 'Download from Azure', 'windows-azure-storage' );
 		return $actions;
 	}
 
@@ -207,6 +217,26 @@ class Azure_Media_Library_Integration {
 			}
 
 			$redirect_to = add_query_arg( 'azure_bulk_removed', $removed, $redirect_to );
+		} elseif ( 'azure_remove_local' === $doaction ) {
+			$result = $this->file_manager->bulk_remove_local_files( $post_ids, true );
+
+			if ( $result['removed'] > 0 ) {
+				$redirect_to = add_query_arg( 'azure_local_removed', $result['removed'], $redirect_to );
+			}
+
+			if ( $result['failed'] > 0 ) {
+				$redirect_to = add_query_arg( 'azure_local_remove_failed', $result['failed'], $redirect_to );
+			}
+		} elseif ( 'azure_download' === $doaction ) {
+			$result = $this->file_manager->bulk_download_from_azure( $post_ids, false );
+
+			if ( $result['downloaded'] > 0 ) {
+				$redirect_to = add_query_arg( 'azure_downloaded', $result['downloaded'], $redirect_to );
+			}
+
+			if ( $result['failed'] > 0 ) {
+				$redirect_to = add_query_arg( 'azure_download_failed', $result['failed'], $redirect_to );
+			}
 		}
 
 		return $redirect_to;
@@ -527,6 +557,74 @@ class Azure_Media_Library_Integration {
 			?>
 			<div class="notice notice-error is-dismissible">
 				<p><?php echo esc_html( $message ); ?></p>
+			</div>
+			<?php
+		}
+
+		if ( isset( $_GET['azure_local_removed'] ) ) {
+			$count = intval( $_GET['azure_local_removed'] );
+			?>
+			<div class="notice notice-success is-dismissible">
+				<p>
+					<?php
+					printf(
+						/* translators: %d: Number of local files removed */
+						esc_html( _n( '%d local file removed. Files remain on Azure.', '%d local files removed. Files remain on Azure.', $count, 'windows-azure-storage' ) ),
+						esc_html( number_format_i18n( $count ) )
+					);
+					?>
+				</p>
+			</div>
+			<?php
+		}
+
+		if ( isset( $_GET['azure_local_remove_failed'] ) ) {
+			$count = intval( $_GET['azure_local_remove_failed'] );
+			?>
+			<div class="notice notice-warning is-dismissible">
+				<p>
+					<?php
+					printf(
+						/* translators: %d: Number of files that failed to remove */
+						esc_html( _n( '%d file could not be removed from local storage.', '%d files could not be removed from local storage.', $count, 'windows-azure-storage' ) ),
+						esc_html( number_format_i18n( $count ) )
+					);
+					?>
+				</p>
+			</div>
+			<?php
+		}
+
+		if ( isset( $_GET['azure_downloaded'] ) ) {
+			$count = intval( $_GET['azure_downloaded'] );
+			?>
+			<div class="notice notice-success is-dismissible">
+				<p>
+					<?php
+					printf(
+						/* translators: %d: Number of files downloaded */
+						esc_html( _n( '%d file downloaded from Azure to local storage.', '%d files downloaded from Azure to local storage.', $count, 'windows-azure-storage' ) ),
+						esc_html( number_format_i18n( $count ) )
+					);
+					?>
+				</p>
+			</div>
+			<?php
+		}
+
+		if ( isset( $_GET['azure_download_failed'] ) ) {
+			$count = intval( $_GET['azure_download_failed'] );
+			?>
+			<div class="notice notice-warning is-dismissible">
+				<p>
+					<?php
+					printf(
+						/* translators: %d: Number of files that failed to download */
+						esc_html( _n( '%d file could not be downloaded from Azure.', '%d files could not be downloaded from Azure.', $count, 'windows-azure-storage' ) ),
+						esc_html( number_format_i18n( $count ) )
+					);
+					?>
+				</p>
 			</div>
 			<?php
 		}
