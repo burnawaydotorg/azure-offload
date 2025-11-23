@@ -278,142 +278,247 @@ Fork of [10up/windows-azure-storage](https://github.com/10up/windows-azure-stora
 
 **Reference:** Based on [WP-Stateless ShortPixel Addon](https://github.com/udx/wp-stateless-shortpixel-addon/)
 
-**Workflow:** Optimize → Offload (with backup handling and WebP support)
+**Workflow:** Upload Original → Optimize → Upload Optimized (serve optimized by default, keep original for future use)
 
 **Technical Requirements:**
-- Hook into ShortPixel's optimization completion event
-- Ensure **optimized file** (not original) is uploaded to Azure
-- Handle ShortPixel backups (sync before optimization, restore support)
+- Store **BOTH optimized AND original files** on Azure
+- Serve optimized version by default (primary URL)
+- Keep original accessible for re-optimization or restoration
 - Support WebP format generation and upload
 - Handle bulk optimization + bulk offload scenarios
 - Support re-optimization triggering re-upload to Azure
 - Support "ephemeral mode" (remove from server after upload)
 - Maintain optimization metadata in post meta
 
+**Azure Storage Structure:**
+```
+/uploads/2025/01/
+  ├── image.jpg              (optimized version - served by default)
+  ├── image.jpg.webp         (WebP variant)
+  ├── image-150x150.jpg      (optimized thumbnail)
+  ├── image-150x150.jpg.webp (WebP thumbnail)
+  └── /originals/
+      ├── image.jpg          (original unoptimized version)
+      └── image-150x150.jpg  (original thumbnail)
+```
+
 **WordPress Hooks to Implement:**
 
 **Actions:**
-1. `shortpixel_image_optimised` - Sync optimized images to Azure after optimization
-2. `shortpixel_before_restore_image` - Download backup files from Azure before restoration
-3. `shortpixel_after_restore_image` - Sync restored images back to Azure
-4. `wp_update_attachment_metadata` - Sync backups to Azure BEFORE optimization starts
-5. Custom: `azure_synced_image` - Handle backup and WebP file syncing after main upload
-6. Custom: `azure_sync_delete_file` - Remove backup/WebP files from Azure when needed
+1. `wp_handle_upload` - Upload original file to Azure BEFORE ShortPixel optimization
+2. `shortpixel_image_optimised` - Upload optimized images to Azure (overwrites main path)
+3. `shortpixel_before_restore_image` - Download originals from Azure for restoration
+4. `shortpixel_after_restore_image` - Re-sync restored files to Azure
+5. Custom: `azure_synced_image` - Handle WebP file syncing after optimization
+6. Custom: `azure_sync_delete_file` - Remove WebP files from Azure when needed
 
 **Filters:**
 1. `shortpixel_image_exists` - Check if images exist on Azure (return true if found)
 2. `shortpixel_image_urls` - Convert Azure URLs to proper format for ShortPixel
-3. `shortpixel_skip_backup` - Skip local backup in ephemeral mode (files deleted after upload)
-4. `shortpixel_skip_delete_backups_and_webps` - Prevent deletion of Azure-stored backups
-5. `shortpixel_backup_folder` - Return Azure backup path for backup operations
-6. `azure_add_media_args` - Handle WebP image uploads with proper metadata
+3. `shortpixel_skip_backup` - Skip ShortPixel's local backup system (we have originals on Azure)
+4. `wp_get_attachment_url` - Serve optimized version by default
+5. `azure_add_media_args` - Handle WebP image uploads with proper metadata
 
 **Implementation Details:**
 
-**Step 1: Sync Backups BEFORE Optimization**
+**Step 1: Upload Original BEFORE Optimization**
 ```php
-add_filter( 'wp_update_attachment_metadata', 'azure_sync_backup_before_optimization', 10, 2 );
+add_action( 'wp_handle_upload', 'azure_upload_original_before_optimization', 10, 2 );
 
-function azure_sync_backup_before_optimization( $metadata, $attachment_id ) {
-    // Check if this is triggered by ShortPixel
-    if ( ! did_action( 'shortpixel_before_process_image' ) ) {
-        return $metadata;
+function azure_upload_original_before_optimization( $upload, $context ) {
+    // Upload original file to Azure /originals/ path
+    $file_path = $upload['file'];
+    $file_url = $upload['url'];
+
+    if ( file_exists( $file_path ) ) {
+        // Determine Azure blob path for original
+        $upload_dir = wp_upload_dir();
+        $relative_path = str_replace( $upload_dir['basedir'] . '/', '', $file_path );
+        $original_blob_path = 'originals/' . $relative_path;
+
+        // Upload to Azure originals directory
+        azure_upload_file_to_blob( $file_path, $original_blob_path );
     }
 
-    // Get backup folder
-    $backup_folder = apply_filters( 'shortpixel_backup_folder', null, $attachment_id );
-
-    // Upload original files to Azure backup location before optimization
-    if ( $backup_folder && is_dir( $backup_folder ) ) {
-        azure_sync_backup_folder( $attachment_id, $backup_folder );
-    }
-
-    return $metadata;
+    return $upload;
 }
 ```
 
-**Step 2: Sync Optimized Images and WebP Files**
+**Step 2: Upload Optimized Images and WebP Files (Overwrites Main Path)**
 ```php
 add_action( 'shortpixel_image_optimised', 'azure_handle_shortpixel_optimized', 10, 2 );
 
 function azure_handle_shortpixel_optimized( $post_id, $optimization_data ) {
-    // Sync optimized images to Azure (overwrites if already exists)
-    azure_sync_attachment( $post_id );
+    $metadata = wp_get_attachment_metadata( $post_id );
+    $upload_dir = wp_upload_dir();
 
-    // Trigger backup and WebP sync
+    if ( empty( $metadata['file'] ) ) {
+        return;
+    }
+
+    // Upload optimized main file to Azure (overwrites original at main path)
+    $file_path = $upload_dir['basedir'] . '/' . $metadata['file'];
+    $relative_path = str_replace( $upload_dir['basedir'] . '/', '', $file_path );
+
+    if ( file_exists( $file_path ) ) {
+        // Upload to main path (not /originals/) - this is the optimized version
+        azure_upload_file_to_blob( $file_path, $relative_path );
+    }
+
+    // Upload optimized thumbnail sizes
+    if ( ! empty( $metadata['sizes'] ) ) {
+        foreach ( $metadata['sizes'] as $size => $size_data ) {
+            $thumb_path = dirname( $file_path ) . '/' . $size_data['file'];
+            $thumb_relative = str_replace( $upload_dir['basedir'] . '/', '', $thumb_path );
+
+            if ( file_exists( $thumb_path ) ) {
+                azure_upload_file_to_blob( $thumb_path, $thumb_relative );
+            }
+        }
+    }
+
+    // Trigger WebP sync
     do_action( 'azure_synced_image', $post_id, $optimization_data );
 
     // Update optimization tracking
     update_post_meta( $post_id, '_azure_shortpixel_optimized_date', time() );
+    update_post_meta( $post_id, '_azure_has_original', true );
 }
 
-add_action( 'azure_synced_image', 'azure_sync_webp_and_backups', 10, 2 );
+add_action( 'azure_synced_image', 'azure_sync_webp_files', 10, 2 );
 
-function azure_sync_webp_and_backups( $post_id, $optimization_data ) {
-    // Check for WebP files generated by ShortPixel
+function azure_sync_webp_files( $post_id, $optimization_data ) {
     $metadata = wp_get_attachment_metadata( $post_id );
     $upload_dir = wp_upload_dir();
 
+    if ( empty( $metadata['file'] ) ) {
+        return;
+    }
+
     // Sync WebP variants (e.g., image.jpg.webp)
-    if ( ! empty( $metadata['file'] ) ) {
-        $file_path = $upload_dir['basedir'] . '/' . $metadata['file'];
-        $webp_path = $file_path . '.webp';
+    $file_path = $upload_dir['basedir'] . '/' . $metadata['file'];
+    $webp_path = $file_path . '.webp';
 
-        if ( file_exists( $webp_path ) ) {
-            azure_upload_file( $webp_path, $post_id, 'webp' );
-        }
+    if ( file_exists( $webp_path ) ) {
+        $webp_relative = str_replace( $upload_dir['basedir'] . '/', '', $webp_path );
+        azure_upload_file_to_blob( $webp_path, $webp_relative );
+    }
 
-        // Sync thumbnail WebP files
-        if ( ! empty( $metadata['sizes'] ) ) {
-            foreach ( $metadata['sizes'] as $size => $size_data ) {
-                $thumb_path = dirname( $file_path ) . '/' . $size_data['file'];
-                $thumb_webp = $thumb_path . '.webp';
+    // Sync thumbnail WebP files
+    if ( ! empty( $metadata['sizes'] ) ) {
+        foreach ( $metadata['sizes'] as $size => $size_data ) {
+            $thumb_path = dirname( $file_path ) . '/' . $size_data['file'];
+            $thumb_webp = $thumb_path . '.webp';
 
-                if ( file_exists( $thumb_webp ) ) {
-                    azure_upload_file( $thumb_webp, $post_id, 'webp-' . $size );
-                }
+            if ( file_exists( $thumb_webp ) ) {
+                $thumb_webp_relative = str_replace( $upload_dir['basedir'] . '/', '', $thumb_webp );
+                azure_upload_file_to_blob( $thumb_webp, $thumb_webp_relative );
             }
         }
+    }
+
+    // Optionally remove local files if in ephemeral mode
+    if ( get_option( 'azure_ephemeral_mode', false ) ) {
+        azure_remove_local_files( $post_id );
     }
 }
 ```
 
-**Step 3: Handle Image Restoration**
+**Step 3: Handle Image Restoration (from Azure originals)**
 ```php
-add_action( 'shortpixel_before_restore_image', 'azure_download_before_restore', 10, 1 );
+add_action( 'shortpixel_before_restore_image', 'azure_download_originals_for_restore', 10, 1 );
 
-function azure_download_before_restore( $attachment_id ) {
-    // Download backup files from Azure before restoration
-    $backup_folder = apply_filters( 'shortpixel_backup_folder', null, $attachment_id );
+function azure_download_originals_for_restore( $attachment_id ) {
+    // Check if we have originals stored on Azure
+    $has_original = get_post_meta( $attachment_id, '_azure_has_original', true );
 
-    if ( $backup_folder ) {
-        azure_download_backup_folder( $attachment_id, $backup_folder );
+    if ( ! $has_original ) {
+        return; // No Azure originals to restore from
+    }
+
+    $metadata = wp_get_attachment_metadata( $attachment_id );
+    $upload_dir = wp_upload_dir();
+
+    if ( empty( $metadata['file'] ) ) {
+        return;
+    }
+
+    // Download original main file from Azure /originals/ path
+    $file_path = $upload_dir['basedir'] . '/' . $metadata['file'];
+    $relative_path = str_replace( $upload_dir['basedir'] . '/', '', $file_path );
+    $original_blob_path = 'originals/' . $relative_path;
+
+    // Download from Azure originals to local path
+    azure_download_blob_to_file( $original_blob_path, $file_path );
+
+    // Download original thumbnails
+    if ( ! empty( $metadata['sizes'] ) ) {
+        foreach ( $metadata['sizes'] as $size => $size_data ) {
+            $thumb_path = dirname( $file_path ) . '/' . $size_data['file'];
+            $thumb_relative = str_replace( $upload_dir['basedir'] . '/', '', $thumb_path );
+            $thumb_original_blob = 'originals/' . $thumb_relative;
+
+            azure_download_blob_to_file( $thumb_original_blob, $thumb_path );
+        }
     }
 }
 
-add_action( 'shortpixel_after_restore_image', 'azure_sync_after_restore', 10, 1 );
+add_action( 'shortpixel_after_restore_image', 'azure_sync_restored_to_main_path', 10, 1 );
 
-function azure_sync_after_restore( $attachment_id ) {
-    // Sync restored (original) images back to Azure
-    azure_sync_attachment( $attachment_id );
+function azure_sync_restored_to_main_path( $attachment_id ) {
+    // After restoration, the local files are now originals again
+    // Upload them to the main Azure path (overwrites optimized versions)
+    $metadata = wp_get_attachment_metadata( $attachment_id );
+    $upload_dir = wp_upload_dir();
 
-    // Clean up optimization metadata
+    if ( empty( $metadata['file'] ) ) {
+        return;
+    }
+
+    // Upload restored main file to main Azure path
+    $file_path = $upload_dir['basedir'] . '/' . $metadata['file'];
+    $relative_path = str_replace( $upload_dir['basedir'] . '/', '', $file_path );
+
+    if ( file_exists( $file_path ) ) {
+        azure_upload_file_to_blob( $file_path, $relative_path );
+    }
+
+    // Upload restored thumbnails
+    if ( ! empty( $metadata['sizes'] ) ) {
+        foreach ( $metadata['sizes'] as $size => $size_data ) {
+            $thumb_path = dirname( $file_path ) . '/' . $size_data['file'];
+            $thumb_relative = str_replace( $upload_dir['basedir'] . '/', '', $thumb_path );
+
+            if ( file_exists( $thumb_path ) ) {
+                azure_upload_file_to_blob( $thumb_path, $thumb_relative );
+            }
+        }
+    }
+
+    // Clean up optimization metadata (no longer optimized)
     delete_post_meta( $attachment_id, '_azure_shortpixel_optimized_date' );
 }
 ```
 
-**Step 4: File Existence Checks**
+**Step 4: File Existence Checks (Check Azure When Local Missing)**
 ```php
 add_filter( 'shortpixel_image_exists', 'azure_check_image_exists', 10, 2 );
 
 function azure_check_image_exists( $exists, $file_path ) {
-    // If file doesn't exist locally, check Azure
+    // If file doesn't exist locally but we're in ephemeral mode, check Azure
     if ( ! $exists || ! file_exists( $file_path ) ) {
-        $azure_url = azure_get_blob_url_from_path( $file_path );
+        $upload_dir = wp_upload_dir();
+        $relative_path = str_replace( $upload_dir['basedir'] . '/', '', $file_path );
 
-        if ( $azure_url ) {
-            // Check if blob exists on Azure (HEAD request)
-            return azure_blob_exists( $azure_url );
+        // Check main path on Azure (optimized version)
+        if ( azure_blob_exists_by_path( $relative_path ) ) {
+            return true;
+        }
+
+        // Check originals path on Azure
+        $original_blob_path = 'originals/' . $relative_path;
+        if ( azure_blob_exists_by_path( $original_blob_path ) ) {
+            return true;
         }
     }
 
@@ -421,50 +526,77 @@ function azure_check_image_exists( $exists, $file_path ) {
 }
 ```
 
-**Step 5: Ephemeral Mode Support**
+**Step 5: Skip ShortPixel's Local Backup System**
 ```php
-add_filter( 'shortpixel_skip_backup', 'azure_skip_backup_ephemeral', 10, 1 );
+add_filter( 'shortpixel_skip_backup', 'azure_skip_shortpixel_backup', 10, 1 );
 
-function azure_skip_backup_ephemeral( $skip ) {
-    // If in ephemeral mode (files removed from server), skip local backup
-    $ephemeral_mode = get_option( 'azure_ephemeral_mode', false );
-
-    if ( $ephemeral_mode ) {
-        return true; // ShortPixel will not create local backups
-    }
-
-    return $skip;
+function azure_skip_shortpixel_backup( $skip ) {
+    // We store originals on Azure, so skip ShortPixel's local backup system
+    return true;
 }
 
-add_filter( 'shortpixel_skip_delete_backups_and_webps', 'azure_protect_cloud_files', 10, 1 );
+add_filter( 'shortpixel_backup_folder', 'azure_override_backup_folder', 10, 2 );
 
-function azure_protect_cloud_files( $skip ) {
-    // Prevent ShortPixel from deleting backups that are stored on Azure
-    $ephemeral_mode = get_option( 'azure_ephemeral_mode', false );
+function azure_override_backup_folder( $backup_folder, $attachment_id ) {
+    // Return null to indicate we handle backups via Azure
+    // This prevents ShortPixel from creating local backup folders
+    return null;
+}
+```
 
-    if ( $ephemeral_mode ) {
-        return true; // Don't delete - files are on Azure
+**Step 6: Serve Optimized by Default**
+```php
+add_filter( 'wp_get_attachment_url', 'azure_serve_optimized_url', 10, 2 );
+
+function azure_serve_optimized_url( $url, $attachment_id ) {
+    // By default, serve from main Azure path (which contains optimized version)
+    // This is already handled by core Azure integration
+    return $url;
+}
+
+// Helper function to get original URL when needed
+function azure_get_original_url( $attachment_id ) {
+    $metadata = wp_get_attachment_metadata( $attachment_id );
+    $upload_dir = wp_upload_dir();
+
+    if ( empty( $metadata['file'] ) ) {
+        return false;
     }
 
-    return $skip;
+    $relative_path = $metadata['file'];
+    $original_blob_path = 'originals/' . $relative_path;
+
+    // Return Azure URL for original version
+    return azure_get_blob_url_by_path( $original_blob_path );
 }
 ```
 
 **Edge Cases to Handle:**
-- Backup sync BEFORE optimization (WP Stateless approach) → Upload originals to Azure backup location first
-- WebP generation → Upload .webp files alongside optimized images
-- Image restoration → Download backups from Azure, restore, re-sync to Azure
-- Ephemeral mode → Skip local backups, prevent deletion of Azure backups
-- URL format conversion → Azure URLs may need transformation for ShortPixel compatibility
-- Bulk optimization running while bulk offload running → Queue coordination via Action Scheduler
+- **Dual Storage**: Both original (in /originals/) and optimized (in main path) stored on Azure
+- **Upload Order**: Original uploaded to Azure BEFORE ShortPixel optimization runs
+- **Overwrite Pattern**: Optimized version overwrites main path after optimization completes
+- **WebP Generation**: Upload .webp files alongside optimized images to main path
+- **Restoration Workflow**: Download originals from /originals/ path, restore locally, re-upload to main path
+- **Ephemeral Mode**: Skip ShortPixel's local backup system entirely (we have Azure originals)
+- **Re-Optimization**: Can re-optimize from Azure originals without downloading to local first
+- **Bulk Operations**: Queue coordination via Action Scheduler for bulk optimization + offload
+- **Storage Cleanup**: Optionally delete originals from /originals/ after X days to save storage costs
+
+**Post Meta Fields:**
+- `_azure_has_original` (boolean) - Indicates original is stored in Azure /originals/ path
+- `_azure_shortpixel_optimized_date` (timestamp) - When optimization occurred
+- `_azure_original_blob_path` (string) - Full blob path to original version
 
 **User Stories:**
-- As a site owner, images are automatically optimized before being offloaded to Azure
-- As a user, if I re-optimize an image, the Azure version is updated automatically
-- As a user, if I restore an image, the original is downloaded from Azure backups
+- As a site owner, both original and optimized images are stored on Azure
+- As a user, the website serves optimized images by default for best performance
+- As a user, if I re-optimize an image, the Azure optimized version is updated automatically
+- As a user, if I restore an image, the original is downloaded from Azure and replaces the optimized version
+- As a developer, I can access the original unoptimized file from Azure when needed
 - As an admin, WebP images are automatically uploaded alongside optimized files
 - As an admin, optimization status is visible alongside offload status in Media Library
 - As a developer, ephemeral mode removes local files after upload to save disk space
+- As a site owner, I have the flexibility to re-optimize from originals stored on Azure
 
 #### Regenerate Thumbnails Pro Integration (Detailed Specification)
 
@@ -863,12 +995,16 @@ function azure_sync_product_gallery( $post_id ) {
 **Testing Checklist:**
 
 **ShortPixel Integration:**
-- [ ] Optimize single image → Verify optimized version uploaded to Azure
-- [ ] Re-optimize already-offloaded image → Verify Azure blob overwritten
-- [ ] Bulk optimize 100 images → Verify all optimized versions uploaded
+- [ ] Upload new image → Verify original uploaded to Azure /originals/ path BEFORE optimization
+- [ ] Optimize single image → Verify optimized version uploaded to main Azure path
+- [ ] Verify dual storage → Confirm both original (/originals/) and optimized (main path) exist on Azure
+- [ ] Re-optimize already-offloaded image → Verify Azure optimized blob overwritten, original preserved
+- [ ] Bulk optimize 100 images → Verify all optimized versions uploaded, originals preserved
 - [ ] ShortPixel WebP generation → Verify .webp files uploaded alongside optimized images
-- [ ] Restore optimized image → Verify backup downloaded from Azure and restored
-- [ ] Ephemeral mode → Verify local backups skipped and Azure backups protected
+- [ ] Restore optimized image → Verify original downloaded from Azure /originals/, restored, re-uploaded to main path
+- [ ] Check image exists (local deleted) → Verify ShortPixel can find image on Azure
+- [ ] Ephemeral mode → Verify local files removed after upload, both versions on Azure
+- [ ] Access original URL → Verify `azure_get_original_url()` returns correct /originals/ path
 
 **Regenerate Thumbnails Integration:**
 - [ ] Regenerate with local file present → New sizes uploaded
