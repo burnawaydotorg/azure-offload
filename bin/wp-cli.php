@@ -579,6 +579,222 @@ class Windows_Azure_Storage_CLI extends WP_CLI_Command {
 			WP_CLI::success( __( 'Bulk offload completed!', 'windows-azure-storage' ) );
 		}
 	}
+
+	/**
+	 * Purge CDN cache for specific URLs.
+	 *
+	 * @param array $args       Command arguments.
+	 * @param array $assoc_args Command options.
+	 *
+	 * @return void
+	 *
+	 * ## OPTIONS
+	 *
+	 * <urls>...
+	 * : One or more URLs to purge from CDN cache.
+	 *
+	 * @subcommand cdn-purge
+	 *
+	 * ## EXAMPLES
+	 *
+	 *     # Purge specific URLs
+	 *     wp windows-azure-storage cdn-purge https://cdn.example.com/media/image.jpg
+	 *
+	 *     # Purge multiple URLs
+	 *     wp windows-azure-storage cdn-purge https://cdn.example.com/img1.jpg https://cdn.example.com/img2.jpg
+	 */
+	public function cdn_purge( $args, $assoc_args ) {
+		if ( empty( $args ) ) {
+			WP_CLI::error( __( 'Please provide at least one URL to purge.', 'windows-azure-storage' ) );
+			return;
+		}
+
+		$cdn_manager = new Azure_CDN_Manager();
+
+		if ( ! $cdn_manager->is_cdn_enabled() ) {
+			WP_CLI::error( __( 'CDN is not enabled. Please configure a CDN endpoint in settings.', 'windows-azure-storage' ) );
+			return;
+		}
+
+		WP_CLI::log(
+			sprintf(
+				// translators: %d is the number of URLs.
+				__( 'Purging %d URL(s) from CDN cache...', 'windows-azure-storage' ),
+				count( $args )
+			)
+		);
+
+		$result = $cdn_manager->purge_urls( $args );
+
+		if ( is_wp_error( $result ) ) {
+			WP_CLI::error( $result->get_error_message() );
+			return;
+		}
+
+		WP_CLI::success( __( 'CDN cache purged successfully.', 'windows-azure-storage' ) );
+	}
+
+	/**
+	 * Purge entire CDN cache.
+	 *
+	 * @param array $args       Command arguments.
+	 * @param array $assoc_args Command options.
+	 *
+	 * @return void
+	 *
+	 * [--yes]
+	 * : Skip confirmation prompt.
+	 *
+	 * @subcommand cdn-purge-all
+	 *
+	 * ## EXAMPLES
+	 *
+	 *     # Purge all CDN cache (with confirmation)
+	 *     wp windows-azure-storage cdn-purge-all
+	 *
+	 *     # Purge all CDN cache (skip confirmation)
+	 *     wp windows-azure-storage cdn-purge-all --yes
+	 */
+	public function cdn_purge_all( $args, $assoc_args ) {
+		$cdn_manager = new Azure_CDN_Manager();
+
+		if ( ! $cdn_manager->is_cdn_enabled() ) {
+			WP_CLI::error( __( 'CDN is not enabled. Please configure a CDN endpoint in settings.', 'windows-azure-storage' ) );
+			return;
+		}
+
+		// Confirm before purging all.
+		if ( ! isset( $assoc_args['yes'] ) ) {
+			WP_CLI::confirm( __( 'Are you sure you want to purge the entire CDN cache? This cannot be undone.', 'windows-azure-storage' ) );
+		}
+
+		WP_CLI::log( __( 'Purging entire CDN cache...', 'windows-azure-storage' ) );
+
+		$result = $cdn_manager->purge_all();
+
+		if ( is_wp_error( $result ) ) {
+			WP_CLI::error( $result->get_error_message() );
+			return;
+		}
+
+		WP_CLI::success( __( 'Entire CDN cache purged successfully.', 'windows-azure-storage' ) );
+	}
+
+	/**
+	 * Validate CDN endpoint configuration.
+	 *
+	 * @param array $args       Command arguments.
+	 * @param array $assoc_args Command options.
+	 *
+	 * @return void
+	 *
+	 * @subcommand cdn-validate
+	 *
+	 * ## EXAMPLES
+	 *
+	 *     wp windows-azure-storage cdn-validate
+	 */
+	public function cdn_validate( $args, $assoc_args ) {
+		$cdn_manager = new Azure_CDN_Manager();
+
+		if ( ! $cdn_manager->is_cdn_enabled() ) {
+			WP_CLI::error( __( 'CDN is not enabled. Please configure a CDN endpoint in settings.', 'windows-azure-storage' ) );
+			return;
+		}
+
+		WP_CLI::log( __( 'Validating CDN endpoint...', 'windows-azure-storage' ) );
+
+		$result = $cdn_manager->validate_cdn_endpoint();
+
+		if ( is_wp_error( $result ) ) {
+			WP_CLI::error( $result->get_error_message() );
+			return;
+		}
+
+		WP_CLI::success( __( 'CDN endpoint is valid and responding.', 'windows-azure-storage' ) );
+	}
+
+	/**
+	 * Get CDN statistics and status.
+	 *
+	 * @param array $args       Command arguments.
+	 * @param array $assoc_args Command options.
+	 *
+	 * @return void
+	 *
+	 * @subcommand cdn-status
+	 *
+	 * ## EXAMPLES
+	 *
+	 *     wp windows-azure-storage cdn-status
+	 */
+	public function cdn_status( $args, $assoc_args ) {
+		$cdn_manager = new Azure_CDN_Manager();
+		$stats = $cdn_manager->get_cdn_stats();
+
+		WP_CLI::log( '' );
+		WP_CLI::log( __( 'CDN Status:', 'windows-azure-storage' ) );
+		WP_CLI::log( str_repeat( '=', 50 ) );
+		WP_CLI::log(
+			sprintf(
+				// translators: %s is enabled/disabled status.
+				__( 'Enabled:         %s', 'windows-azure-storage' ),
+				$stats['enabled'] ? __( 'Yes', 'windows-azure-storage' ) : __( 'No', 'windows-azure-storage' )
+			)
+		);
+
+		if ( $stats['enabled'] ) {
+			WP_CLI::log(
+				sprintf(
+					// translators: %s is the CDN endpoint URL.
+					__( 'Endpoint:        %s', 'windows-azure-storage' ),
+					$stats['endpoint']
+				)
+			);
+		}
+
+		WP_CLI::log(
+			sprintf(
+				// translators: %s is enabled/disabled status.
+				__( 'Auto Purge:      %s', 'windows-azure-storage' ),
+				$stats['auto_purge'] ? __( 'Enabled', 'windows-azure-storage' ) : __( 'Disabled', 'windows-azure-storage' )
+			)
+		);
+		WP_CLI::log(
+			sprintf(
+				// translators: %s is yes/no.
+				__( 'API Configured:  %s', 'windows-azure-storage' ),
+				$stats['api_configured'] ? __( 'Yes', 'windows-azure-storage' ) : __( 'No', 'windows-azure-storage' )
+			)
+		);
+		WP_CLI::log(
+			sprintf(
+				// translators: %d is the number of purge operations.
+				__( 'Total Purges:    %d', 'windows-azure-storage' ),
+				$stats['total_purges']
+			)
+		);
+		WP_CLI::log(
+			sprintf(
+				// translators: %d is the number of paths purged.
+				__( 'Total Paths:     %d', 'windows-azure-storage' ),
+				$stats['total_paths']
+			)
+		);
+
+		if ( $stats['last_purge'] > 0 ) {
+			WP_CLI::log(
+				sprintf(
+					// translators: %s is the time ago.
+					__( 'Last Purge:      %s ago', 'windows-azure-storage' ),
+					human_time_diff( $stats['last_purge'], time() )
+				)
+			);
+		}
+
+		WP_CLI::log( str_repeat( '=', 50 ) );
+		WP_CLI::log( '' );
+	}
 }
 
 WP_CLI::add_command( 'windows-azure-storage', 'Windows_Azure_Storage_CLI' );

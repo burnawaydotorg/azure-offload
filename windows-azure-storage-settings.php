@@ -126,6 +126,16 @@ function windows_azure_storage_plugin_register_settings() {
 		register_setting( 'windows-azure-storage-settings-group', 'azure_cache_control', 'sanitize_text_field' );
 	}
 
+	// CDN settings.
+	register_setting( 'windows-azure-storage-settings-group', 'azure_cdn_auto_purge', 'wp_validate_boolean' );
+	register_setting( 'windows-azure-storage-settings-group', 'azure_cdn_profile', 'sanitize_text_field' );
+	register_setting( 'windows-azure-storage-settings-group', 'azure_cdn_endpoint_name', 'sanitize_text_field' );
+	register_setting( 'windows-azure-storage-settings-group', 'azure_subscription_id', 'sanitize_text_field' );
+	register_setting( 'windows-azure-storage-settings-group', 'azure_resource_group', 'sanitize_text_field' );
+	register_setting( 'windows-azure-storage-settings-group', 'azure_tenant_id', 'sanitize_text_field' );
+	register_setting( 'windows-azure-storage-settings-group', 'azure_client_id', 'sanitize_text_field' );
+	register_setting( 'windows-azure-storage-settings-group', 'azure_client_secret', 'sanitize_text_field' );
+
 	/**
 	 * @since 4.0.0
 	 */
@@ -224,6 +234,82 @@ function windows_azure_storage_plugin_register_settings() {
 		'windows_azure_cache_control',
 		'windows-azure-storage-plugin-options',
 		'windows-azure-storage-settings'
+	);
+
+	/**
+	 * CDN Settings Section
+	 *
+	 * @since 6.0.0
+	 */
+	add_settings_section(
+		'windows-azure-cdn-settings',
+		__( 'Azure CDN Settings', 'windows-azure-storage' ),
+		'windows_azure_cdn_settings_section',
+		'windows-azure-storage-plugin-options'
+	);
+
+	add_settings_field(
+		'azure_cdn_auto_purge',
+		__( 'Automatic CDN Purge', 'windows-azure-storage' ),
+		'windows_azure_cdn_auto_purge',
+		'windows-azure-storage-plugin-options',
+		'windows-azure-cdn-settings'
+	);
+
+	add_settings_field(
+		'azure_subscription_id',
+		__( 'Azure Subscription ID', 'windows-azure-storage' ),
+		'windows_azure_cdn_subscription_id',
+		'windows-azure-storage-plugin-options',
+		'windows-azure-cdn-settings'
+	);
+
+	add_settings_field(
+		'azure_resource_group',
+		__( 'Resource Group', 'windows-azure-storage' ),
+		'windows_azure_cdn_resource_group',
+		'windows-azure-storage-plugin-options',
+		'windows-azure-cdn-settings'
+	);
+
+	add_settings_field(
+		'azure_cdn_profile',
+		__( 'CDN Profile Name', 'windows-azure-storage' ),
+		'windows_azure_cdn_profile',
+		'windows-azure-storage-plugin-options',
+		'windows-azure-cdn-settings'
+	);
+
+	add_settings_field(
+		'azure_cdn_endpoint_name',
+		__( 'CDN Endpoint Name', 'windows-azure-storage' ),
+		'windows_azure_cdn_endpoint_name',
+		'windows-azure-storage-plugin-options',
+		'windows-azure-cdn-settings'
+	);
+
+	add_settings_field(
+		'azure_tenant_id',
+		__( 'Azure AD Tenant ID', 'windows-azure-storage' ),
+		'windows_azure_cdn_tenant_id',
+		'windows-azure-storage-plugin-options',
+		'windows-azure-cdn-settings'
+	);
+
+	add_settings_field(
+		'azure_client_id',
+		__( 'Service Principal Client ID', 'windows-azure-storage' ),
+		'windows_azure_cdn_client_id',
+		'windows-azure-storage-plugin-options',
+		'windows-azure-cdn-settings'
+	);
+
+	add_settings_field(
+		'azure_client_secret',
+		__( 'Service Principal Client Secret', 'windows-azure-storage' ),
+		'windows_azure_cdn_client_secret',
+		'windows-azure-storage-plugin-options',
+		'windows-azure-cdn-settings'
 	);
 }
 
@@ -585,4 +671,148 @@ function windows_azure_storage_check_container_access_policy() {
 		</div>
 		<?php
 	} );
+}
+
+/**
+ * CDN settings section callback function.
+ *
+ * @since 6.0.0
+ *
+ * @return void
+ */
+function windows_azure_cdn_settings_section() {
+	echo '<p>';
+	echo esc_html__(
+		'Configure Azure CDN integration for automatic cache management. To enable CDN purging, you need to set up an Azure Active Directory service principal with CDN management permissions.',
+		'windows-azure-storage'
+	);
+	echo '</p>';
+	echo '<p>';
+	echo wp_kses_post(__( '<strong>Note:</strong> The CNAME field above serves as your CDN endpoint URL. Azure CDN caching will work once you configure a CDN endpoint to point to your storage account.', 'windows-azure-storage' ));
+	echo '</p>';
+}
+
+/**
+ * CDN auto purge setting callback.
+ *
+ * @since 6.0.0
+ *
+ * @return void
+ */
+function windows_azure_cdn_auto_purge() {
+	$auto_purge = get_option( 'azure_cdn_auto_purge', false );
+
+	echo '<input type="checkbox" name="azure_cdn_auto_purge" value="1" id="azure_cdn_auto_purge"', checked( $auto_purge, true, false ), '>';
+	echo '<label for="azure_cdn_auto_purge">';
+	esc_html_e( 'Automatically purge CDN cache when media is updated or deleted', 'windows-azure-storage' );
+	echo '</label>';
+
+	echo '<p class="description">';
+	esc_html_e( 'Requires all CDN API credentials below to be configured.', 'windows-azure-storage' );
+	echo '</p>';
+}
+
+/**
+ * Azure subscription ID setting callback.
+ *
+ * @since 6.0.0
+ *
+ * @return void
+ */
+function windows_azure_cdn_subscription_id() {
+	$subscription_id = get_option( 'azure_subscription_id', '' );
+	echo '<input type="text" name="azure_subscription_id" class="regular-text" value="', esc_attr( $subscription_id ), '" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">';
+	echo '<p class="description">';
+	esc_html_e( 'Your Azure subscription ID (GUID format).', 'windows-azure-storage' );
+	echo '</p>';
+}
+
+/**
+ * Azure resource group setting callback.
+ *
+ * @since 6.0.0
+ *
+ * @return void
+ */
+function windows_azure_cdn_resource_group() {
+	$resource_group = get_option( 'azure_resource_group', '' );
+	echo '<input type="text" name="azure_resource_group" class="regular-text" value="', esc_attr( $resource_group ), '" placeholder="my-resource-group">';
+	echo '<p class="description">';
+	esc_html_e( 'The resource group containing your CDN profile.', 'windows-azure-storage' );
+	echo '</p>';
+}
+
+/**
+ * CDN profile name setting callback.
+ *
+ * @since 6.0.0
+ *
+ * @return void
+ */
+function windows_azure_cdn_profile() {
+	$cdn_profile = get_option( 'azure_cdn_profile', '' );
+	echo '<input type="text" name="azure_cdn_profile" class="regular-text" value="', esc_attr( $cdn_profile ), '" placeholder="my-cdn-profile">';
+	echo '<p class="description">';
+	esc_html_e( 'The name of your Azure CDN profile.', 'windows-azure-storage' );
+	echo '</p>';
+}
+
+/**
+ * CDN endpoint name setting callback.
+ *
+ * @since 6.0.0
+ *
+ * @return void
+ */
+function windows_azure_cdn_endpoint_name() {
+	$cdn_endpoint_name = get_option( 'azure_cdn_endpoint_name', '' );
+	echo '<input type="text" name="azure_cdn_endpoint_name" class="regular-text" value="', esc_attr( $cdn_endpoint_name ), '" placeholder="my-endpoint">';
+	echo '<p class="description">';
+	esc_html_e( 'The name of your CDN endpoint (not the full URL).', 'windows-azure-storage' );
+	echo '</p>';
+}
+
+/**
+ * Azure AD tenant ID setting callback.
+ *
+ * @since 6.0.0
+ *
+ * @return void
+ */
+function windows_azure_cdn_tenant_id() {
+	$tenant_id = get_option( 'azure_tenant_id', '' );
+	echo '<input type="text" name="azure_tenant_id" class="regular-text" value="', esc_attr( $tenant_id ), '" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">';
+	echo '<p class="description">';
+	esc_html_e( 'Your Azure Active Directory tenant ID.', 'windows-azure-storage' );
+	echo '</p>';
+}
+
+/**
+ * Service principal client ID setting callback.
+ *
+ * @since 6.0.0
+ *
+ * @return void
+ */
+function windows_azure_cdn_client_id() {
+	$client_id = get_option( 'azure_client_id', '' );
+	echo '<input type="text" name="azure_client_id" class="regular-text" value="', esc_attr( $client_id ), '" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">';
+	echo '<p class="description">';
+	esc_html_e( 'The client ID (application ID) of your service principal.', 'windows-azure-storage' );
+	echo '</p>';
+}
+
+/**
+ * Service principal client secret setting callback.
+ *
+ * @since 6.0.0
+ *
+ * @return void
+ */
+function windows_azure_cdn_client_secret() {
+	$client_secret = get_option( 'azure_client_secret', '' );
+	echo '<input type="password" name="azure_client_secret" class="regular-text" value="', esc_attr( $client_secret ), '" placeholder="••••••••••••••••••••">';
+	echo '<p class="description">';
+	esc_html_e( 'The client secret for your service principal. Stored securely.', 'windows-azure-storage' );
+	echo '</p>';
 }

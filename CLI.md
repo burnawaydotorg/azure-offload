@@ -372,6 +372,150 @@ Warning: No active bulk offload operation found.
 
 ---
 
+## CDN Management
+
+### Purge CDN Cache for Specific URLs
+
+Purge CDN cache for one or more URLs.
+
+```bash
+wp windows-azure-storage cdn-purge <urls>...
+```
+
+**Arguments:**
+- `<urls>...` - One or more URLs to purge from CDN cache (required).
+
+**Examples:**
+```bash
+# Purge a single URL
+wp windows-azure-storage cdn-purge https://cdn.example.com/media/image.jpg
+
+# Purge multiple URLs
+wp windows-azure-storage cdn-purge https://cdn.example.com/img1.jpg https://cdn.example.com/img2.jpg https://cdn.example.com/img3.jpg
+```
+
+**Output:**
+```
+Purging 3 URL(s) from CDN cache...
+Success: CDN cache purged successfully.
+```
+
+**Requirements:**
+- CDN endpoint configured in settings (CNAME field)
+- Azure CDN API credentials configured (subscription ID, resource group, CDN profile, endpoint name, service principal credentials)
+
+**Notes:**
+- Uses Azure CDN Purge REST API
+- Purge operations are asynchronous and may take a few minutes to propagate
+- Requires valid Azure Active Directory service principal with CDN management permissions
+
+---
+
+### Purge Entire CDN Cache
+
+Purge all content from CDN cache.
+
+```bash
+wp windows-azure-storage cdn-purge-all [--yes]
+```
+
+**Options:**
+- `--yes` - Skip confirmation prompt.
+
+**Examples:**
+```bash
+# Purge all CDN cache (with confirmation)
+wp windows-azure-storage cdn-purge-all
+
+# Output prompts:
+# Are you sure you want to purge the entire CDN cache? This cannot be undone. [y/n]
+
+# Purge all CDN cache (skip confirmation)
+wp windows-azure-storage cdn-purge-all --yes
+```
+
+**Output:**
+```
+Purging entire CDN cache...
+Success: Entire CDN cache purged successfully.
+```
+
+**⚠️ Warning:** This purges ALL cached content from your CDN. Use with caution.
+
+---
+
+### Validate CDN Endpoint
+
+Test CDN endpoint configuration and connectivity.
+
+```bash
+wp windows-azure-storage cdn-validate
+```
+
+**Examples:**
+```bash
+wp windows-azure-storage cdn-validate
+```
+
+**Output (Success):**
+```
+Validating CDN endpoint...
+Success: CDN endpoint is valid and responding.
+```
+
+**Output (Failure):**
+```
+Validating CDN endpoint...
+Error: CDN endpoint unreachable: Could not resolve host
+```
+
+**Use Cases:**
+- Verify CDN endpoint after configuration
+- Troubleshoot CDN connectivity issues
+- Validate DNS changes have propagated
+
+---
+
+### Get CDN Status
+
+Display CDN configuration and statistics.
+
+```bash
+wp windows-azure-storage cdn-status
+```
+
+**Examples:**
+```bash
+wp windows-azure-storage cdn-status
+```
+
+**Output:**
+```
+
+CDN Status:
+==================================================
+Enabled:         Yes
+Endpoint:        https://cdn.example.com
+Auto Purge:      Enabled
+API Configured:  Yes
+Total Purges:    142
+Total Paths:     1,853
+Last Purge:      2 hours ago
+==================================================
+
+```
+
+**Metrics Shown:**
+- **Enabled** - Whether CDN is configured (CNAME set)
+- **Endpoint** - CDN endpoint URL
+- **Auto Purge** - Automatic purge on media updates enabled/disabled
+- **API Configured** - Whether Azure CDN API credentials are configured
+- **Total Purges** - Number of purge operations performed
+- **Total Paths** - Total number of paths purged
+- **Last Purge** - Time since last purge operation
+
+---
+
 ## Examples & Use Cases
 
 ### Example 1: Fresh Site Migration to Azure

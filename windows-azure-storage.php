@@ -125,6 +125,7 @@ require_once MSFT_AZURE_PLUGIN_PATH . 'includes/class-windows-azure-replace-medi
 require_once MSFT_AZURE_PLUGIN_PATH . 'includes/class-azure-background-processor.php';
 require_once MSFT_AZURE_PLUGIN_PATH . 'includes/class-azure-bulk-offload-ui.php';
 require_once MSFT_AZURE_PLUGIN_PATH . 'includes/class-azure-local-file-manager.php';
+require_once MSFT_AZURE_PLUGIN_PATH . 'includes/class-azure-cdn-manager.php';
 require_once MSFT_AZURE_PLUGIN_PATH . 'includes/class-azure-media-library-integration.php';
 
 if ( defined( 'WP_CLI' ) && WP_CLI ) {
@@ -212,6 +213,9 @@ new Azure_Bulk_Offload_UI( $azure_background_processor );
 
 // Initialize Media Library integration
 new Azure_Media_Library_Integration( $azure_background_processor );
+
+// Initialize CDN Manager
+new Azure_CDN_Manager();
 
 /**
  * Loads text domain.
