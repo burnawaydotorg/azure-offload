@@ -129,6 +129,8 @@ require_once MSFT_AZURE_PLUGIN_PATH . 'includes/class-azure-local-file-manager.p
 require_once MSFT_AZURE_PLUGIN_PATH . 'includes/class-azure-cdn-manager.php';
 require_once MSFT_AZURE_PLUGIN_PATH . 'includes/class-azure-container-copy-manager.php';
 require_once MSFT_AZURE_PLUGIN_PATH . 'includes/class-azure-asset-manager.php';
+require_once MSFT_AZURE_PLUGIN_PATH . 'includes/class-azure-plugin-compatibility.php';
+require_once MSFT_AZURE_PLUGIN_PATH . 'includes/class-azure-ui-enhancements.php';
 require_once MSFT_AZURE_PLUGIN_PATH . 'includes/class-azure-media-library-integration.php';
 
 if ( defined( 'WP_CLI' ) && WP_CLI ) {
@@ -219,6 +221,12 @@ new Azure_Media_Library_Integration( $azure_background_processor );
 
 // Initialize CDN Manager
 new Azure_CDN_Manager();
+
+// Initialize Plugin Compatibility
+new Azure_Plugin_Compatibility( $azure_background_processor );
+
+// Initialize UI Enhancements
+new Azure_UI_Enhancements( $azure_background_processor );
 
 /**
  * Loads text domain.
