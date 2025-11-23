@@ -1031,6 +1031,217 @@ class Windows_Azure_Storage_CLI extends WP_CLI_Command {
 		WP_CLI::log( str_repeat( '=', 50 ) );
 		WP_CLI::log( '' );
 	}
+
+	/**
+	 * Sync theme assets to Azure.
+	 *
+	 * @param array $args       Command arguments.
+	 * @param array $assoc_args Command options.
+	 *
+	 * @return void
+	 *
+	 * [--force]
+	 * : Copy all files even if unchanged.
+	 *
+	 * [--dry-run]
+	 * : Show what would be synced without actually copying.
+	 *
+	 * @subcommand sync-theme-assets
+	 *
+	 * ## EXAMPLES
+	 *
+	 *     # Sync active theme assets
+	 *     wp windows-azure-storage sync-theme-assets
+	 *
+	 *     # Force sync all files
+	 *     wp windows-azure-storage sync-theme-assets --force
+	 *
+	 *     # Dry run to see what would be synced
+	 *     wp windows-azure-storage sync-theme-assets --dry-run
+	 */
+	public function sync_theme_assets( $args, $assoc_args ) {
+		$asset_manager = new Azure_Asset_Manager();
+
+		$options = array(
+			'force'   => isset( $assoc_args['force'] ),
+			'dry_run' => isset( $assoc_args['dry-run'] ),
+		);
+
+		$theme_name = wp_get_theme()->get( 'Name' );
+
+		WP_CLI::log(
+			sprintf(
+				// translators: %s is theme name.
+				__( 'Syncing assets for theme: %s', 'windows-azure-storage' ),
+				$theme_name
+			)
+		);
+
+		if ( $options['dry_run'] ) {
+			WP_CLI::log( __( '[DRY RUN] No files will be copied', 'windows-azure-storage' ) );
+		}
+
+		$result = $asset_manager->sync_theme_assets( $options );
+
+		if ( is_wp_error( $result ) ) {
+			WP_CLI::error( $result->get_error_message() );
+			return;
+		}
+
+		WP_CLI::log( '' );
+		WP_CLI::success(
+			sprintf(
+				// translators: %1$d copied, %2$d skipped, %3$d failed.
+				__( 'Sync complete: %1$d copied, %2$d skipped, %3$d failed', 'windows-azure-storage' ),
+				$result['copied'],
+				$result['skipped'],
+				$result['failed']
+			)
+		);
+
+		// Show errors if any.
+		if ( ! empty( $result['errors'] ) ) {
+			WP_CLI::warning( __( 'Errors:', 'windows-azure-storage' ) );
+			foreach ( array_slice( $result['errors'], 0, 10 ) as $error ) {
+				WP_CLI::log( '  - ' . $error );
+			}
+		}
+	}
+
+	/**
+	 * Sync plugin assets to Azure.
+	 *
+	 * @param array $args       Command arguments.
+	 * @param array $assoc_args Command options.
+	 *
+	 * @return void
+	 *
+	 * ## OPTIONS
+	 *
+	 * <plugin-slug>
+	 * : Plugin directory name (e.g., 'woocommerce').
+	 *
+	 * [--force]
+	 * : Copy all files even if unchanged.
+	 *
+	 * [--dry-run]
+	 * : Show what would be synced without actually copying.
+	 *
+	 * @subcommand sync-plugin-assets
+	 *
+	 * ## EXAMPLES
+	 *
+	 *     # Sync WooCommerce assets
+	 *     wp windows-azure-storage sync-plugin-assets woocommerce
+	 *
+	 *     # Force sync all files
+	 *     wp windows-azure-storage sync-plugin-assets woocommerce --force
+	 */
+	public function sync_plugin_assets( $args, $assoc_args ) {
+		list( $plugin_slug ) = $args;
+
+		$asset_manager = new Azure_Asset_Manager();
+
+		$options = array(
+			'force'   => isset( $assoc_args['force'] ),
+			'dry_run' => isset( $assoc_args['dry-run'] ),
+		);
+
+		WP_CLI::log(
+			sprintf(
+				// translators: %s is plugin slug.
+				__( 'Syncing assets for plugin: %s', 'windows-azure-storage' ),
+				$plugin_slug
+			)
+		);
+
+		if ( $options['dry_run'] ) {
+			WP_CLI::log( __( '[DRY RUN] No files will be copied', 'windows-azure-storage' ) );
+		}
+
+		$result = $asset_manager->sync_plugin_assets( $plugin_slug, $options );
+
+		if ( is_wp_error( $result ) ) {
+			WP_CLI::error( $result->get_error_message() );
+			return;
+		}
+
+		WP_CLI::log( '' );
+		WP_CLI::success(
+			sprintf(
+				// translators: %1$d copied, %2$d skipped, %3$d failed.
+				__( 'Sync complete: %1$d copied, %2$d skipped, %3$d failed', 'windows-azure-storage' ),
+				$result['copied'],
+				$result['skipped'],
+				$result['failed']
+			)
+		);
+
+		// Show errors if any.
+		if ( ! empty( $result['errors'] ) ) {
+			WP_CLI::warning( __( 'Errors:', 'windows-azure-storage' ) );
+			foreach ( array_slice( $result['errors'], 0, 10 ) as $error ) {
+				WP_CLI::log( '  - ' . $error );
+			}
+		}
+	}
+
+	/**
+	 * Get asset sync statistics.
+	 *
+	 * @param array $args       Command arguments.
+	 * @param array $assoc_args Command options.
+	 *
+	 * @return void
+	 *
+	 * @subcommand asset-stats
+	 *
+	 * ## EXAMPLES
+	 *
+	 *     wp windows-azure-storage asset-stats
+	 */
+	public function asset_stats( $args, $assoc_args ) {
+		$asset_manager = new Azure_Asset_Manager();
+		$stats = $asset_manager->get_sync_stats();
+
+		WP_CLI::log( '' );
+		WP_CLI::log( __( 'Asset Sync Statistics:', 'windows-azure-storage' ) );
+		WP_CLI::log( str_repeat( '=', 50 ) );
+		WP_CLI::log(
+			sprintf(
+				// translators: %d is total synced.
+				__( 'Total Synced:      %d', 'windows-azure-storage' ),
+				$stats['total_synced']
+			)
+		);
+		WP_CLI::log(
+			sprintf(
+				// translators: %s is container name.
+				__( 'Container:         %s', 'windows-azure-storage' ),
+				$stats['asset_container']
+			)
+		);
+		WP_CLI::log(
+			sprintf(
+				// translators: %s is enabled/disabled.
+				__( 'URL Rewrite:       %s', 'windows-azure-storage' ),
+				$stats['url_rewrite'] ? __( 'Enabled', 'windows-azure-storage' ) : __( 'Disabled', 'windows-azure-storage' )
+			)
+		);
+
+		if ( $stats['last_sync'] > 0 ) {
+			WP_CLI::log(
+				sprintf(
+					// translators: %s is time ago.
+					__( 'Last Sync:         %s ago', 'windows-azure-storage' ),
+					human_time_diff( $stats['last_sync'], time() )
+				)
+			);
+		}
+
+		WP_CLI::log( str_repeat( '=', 50 ) );
+		WP_CLI::log( '' );
+	}
 }
 
 WP_CLI::add_command( 'windows-azure-storage', 'Windows_Azure_Storage_CLI' );

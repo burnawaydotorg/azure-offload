@@ -136,6 +136,10 @@ function windows_azure_storage_plugin_register_settings() {
 	register_setting( 'windows-azure-storage-settings-group', 'azure_client_id', 'sanitize_text_field' );
 	register_setting( 'windows-azure-storage-settings-group', 'azure_client_secret', 'sanitize_text_field' );
 
+	// Asset offloading settings.
+	register_setting( 'windows-azure-storage-settings-group', 'azure_asset_container', 'sanitize_text_field' );
+	register_setting( 'windows-azure-storage-settings-group', 'azure_asset_url_rewrite', 'wp_validate_boolean' );
+
 	/**
 	 * @since 4.0.0
 	 */
@@ -310,6 +314,34 @@ function windows_azure_storage_plugin_register_settings() {
 		'windows_azure_cdn_client_secret',
 		'windows-azure-storage-plugin-options',
 		'windows-azure-cdn-settings'
+	);
+
+	/**
+	 * Asset Settings Section
+	 *
+	 * @since 6.0.0
+	 */
+	add_settings_section(
+		'windows-azure-asset-settings',
+		__( 'Asset Offloading Settings', 'windows-azure-storage' ),
+		'windows_azure_asset_settings_section',
+		'windows-azure-storage-plugin-options'
+	);
+
+	add_settings_field(
+		'azure_asset_container',
+		__( 'Asset Container', 'windows-azure-storage' ),
+		'windows_azure_asset_container',
+		'windows-azure-storage-plugin-options',
+		'windows-azure-asset-settings'
+	);
+
+	add_settings_field(
+		'azure_asset_url_rewrite',
+		__( 'URL Rewriting', 'windows-azure-storage' ),
+		'windows_azure_asset_url_rewrite',
+		'windows-azure-storage-plugin-options',
+		'windows-azure-asset-settings'
 	);
 }
 
@@ -814,5 +846,59 @@ function windows_azure_cdn_client_secret() {
 	echo '<input type="password" name="azure_client_secret" class="regular-text" value="', esc_attr( $client_secret ), '" placeholder="••••••••••••••••••••">';
 	echo '<p class="description">';
 	esc_html_e( 'The client secret for your service principal. Stored securely.', 'windows-azure-storage' );
+	echo '</p>';
+}
+
+/**
+ * Asset settings section callback function.
+ *
+ * @since 6.0.0
+ *
+ * @return void
+ */
+function windows_azure_asset_settings_section() {
+	echo '<p>';
+	echo esc_html__(
+		'Configure asset offloading for theme and plugin CSS, JS, and font files. Assets are COPIED (not moved) to Azure - local files remain for development.',
+		'windows-azure-storage'
+	);
+	echo '</p>';
+	echo '<p>';
+	echo wp_kses_post(__( '<strong>Note:</strong> Use WP-CLI commands to sync assets: <code>wp windows-azure-storage sync-theme-assets</code>', 'windows-azure-storage' ));
+	echo '</p>';
+}
+
+/**
+ * Asset container setting callback.
+ *
+ * @since 6.0.0
+ *
+ * @return void
+ */
+function windows_azure_asset_container() {
+	$container = get_option( 'azure_asset_container', \Windows_Azure_Helper::get_default_container() );
+	echo '<input type="text" name="azure_asset_container" class="regular-text" value="', esc_attr( $container ), '" placeholder="assets">';
+	echo '<p class="description">';
+	esc_html_e( 'Container for theme/plugin assets (CSS, JS, fonts). Defaults to main container.', 'windows-azure-storage' );
+	echo '</p>';
+}
+
+/**
+ * Asset URL rewriting setting callback.
+ *
+ * @since 6.0.0
+ *
+ * @return void
+ */
+function windows_azure_asset_url_rewrite() {
+	$url_rewrite = get_option( 'azure_asset_url_rewrite', false );
+
+	echo '<input type="checkbox" name="azure_asset_url_rewrite" value="1" id="azure_asset_url_rewrite"', checked( $url_rewrite, true, false ), '>';
+	echo '<label for="azure_asset_url_rewrite">';
+	esc_html_e( 'Automatically rewrite asset URLs to use Azure CDN', 'windows-azure-storage' );
+	echo '</label>';
+
+	echo '<p class="description">';
+	esc_html_e( 'Only synced assets will be served from Azure. Unsynced assets remain local.', 'windows-azure-storage' );
 	echo '</p>';
 }

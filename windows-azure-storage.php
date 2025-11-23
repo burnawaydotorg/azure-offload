@@ -128,6 +128,7 @@ require_once MSFT_AZURE_PLUGIN_PATH . 'includes/class-azure-bulk-offload-ui.php'
 require_once MSFT_AZURE_PLUGIN_PATH . 'includes/class-azure-local-file-manager.php';
 require_once MSFT_AZURE_PLUGIN_PATH . 'includes/class-azure-cdn-manager.php';
 require_once MSFT_AZURE_PLUGIN_PATH . 'includes/class-azure-container-copy-manager.php';
+require_once MSFT_AZURE_PLUGIN_PATH . 'includes/class-azure-asset-manager.php';
 require_once MSFT_AZURE_PLUGIN_PATH . 'includes/class-azure-media-library-integration.php';
 
 if ( defined( 'WP_CLI' ) && WP_CLI ) {
