@@ -2,7 +2,7 @@
 Contributors:      msopentech, 10up, morganestes, stevegrunwell, lpawlik, ritteshpatel, johnwatkins0, rickalee, eflorea, phyrax, ravichandra, jeffpaul
 Tags:              Microsoft Azure Storage, Media Files, Upload, CDN, blob storage
 Tested up to:      6.8
-Stable tag:        4.5.2
+Stable tag:        5.0.0
 License:           BSD-2-Clause
 License URI:       https://spdx.org/licenses/BSD-2-Clause.html
 

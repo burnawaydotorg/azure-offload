@@ -224,8 +224,8 @@ class Windows_Azure_Replace_Media {
 				);
 			}
 		} catch ( Exception $e ) {
-			// translators: %s would be an error message.
-			printf( esc_html__( 'Error in uploading file. Error: %s', 'windows-azure-storage' ), esc_html( $e->getMessage() ) );
+			// Do not echo: this runs inside an AJAX request and output corrupts the JSON response.
+			error_log( sprintf( 'Microsoft Azure Storage: error replacing media: %s', $e->getMessage() ) );
 		}
 
 		$replacement = array();
@@ -349,8 +349,8 @@ class Windows_Azure_Replace_Media {
 						30,
 					);
 				} catch ( Exception $e ) {
-					// translators: %s would be an error message.
-					printf( esc_html__( 'Error in uploading file. Error: %s', 'windows-azure-storage' ), esc_html( $e->getMessage() ) );
+					// Do not echo: this runs inside an AJAX request and output corrupts the JSON response.
+					error_log( sprintf( 'Microsoft Azure Storage: error replacing media thumbnail: %s', $e->getMessage() ) );
 				}
 			}
 		}
@@ -381,8 +381,8 @@ class Windows_Azure_Replace_Media {
 						);
 					}
 				} catch ( Exception $e ) {
-					// translators: %s would be an error message.
-					printf( esc_html__( 'Blob could not be removed. Error: %s', 'windows-azure-storage' ), esc_html( $e->getMessage() ) );
+					// Do not echo: this runs inside an AJAX request and output corrupts the JSON response.
+					error_log( sprintf( 'Microsoft Azure Storage: blob could not be removed: %s', $e->getMessage() ) );
 				}
 			}
 		}
@@ -417,46 +417,40 @@ class Windows_Azure_Replace_Media {
 		}
 
 		foreach ( $source_sizes['meta_data']['sizes'] as $size => $size_data ) {
-			$target_width = ! empty( $target_sizes['meta_data']['sizes'][ $size ] ) ? $target_sizes['meta_data']['sizes'][ $size ]['width'] : 0;
 			$source_width = $size_data['width'];
+			$best_match   = null;
+			$diff         = PHP_INT_MAX;
 
-			$diff = abs( $source_width - $target_width );
+			// Prefer the same-named size when the replacement image has it.
+			if ( isset( $target_sizes['meta_data']['sizes'][ $size ] ) ) {
+				$best_match = $target_sizes['meta_data']['sizes'][ $size ];
+				$diff       = abs( $source_width - $best_match['width'] );
+			}
 
-			$target_file            = $target_sizes['meta_data']['sizes'][ $size ];
-			$convert_sizes[ $size ] = array(
-				'source_file'  => $file_path . '/' . $size_data['file'],
-				'replace_file' => $target_file_path . '/' . $target_file['file'],
-				'source_data'  => array(
-					'file'      => $size_data['file'],
-					'width'     => $target_file['width'],
-					'height'    => $target_file['height'],
-					'mime-type' => $target_file['mime-type'],
-					'filesize'  => $target_file['filesize'],
-				),
-			);
-
-			foreach ( $target_sizes['meta_data']['sizes'] as $target_size => $target_data ) {
-				$target_width = $target_data['width'];
-				$source_width = $size_data['width'];
-
-				$new_diff = abs( $source_width - $target_width );
+			foreach ( $target_sizes['meta_data']['sizes'] as $target_data ) {
+				$new_diff = abs( $source_width - $target_data['width'] );
 
 				if ( $new_diff < $diff ) {
-					$diff = $new_diff;
-
-					$convert_sizes[ $size ] = array(
-						'source_file'  => $file_path . '/' . $size_data['file'],
-						'replace_file' => $target_file_path . '/' . $target_data['file'],
-						'source_data'  => array(
-							'file'      => $size_data['file'],
-							'width'     => $target_data['width'],
-							'height'    => $target_data['height'],
-							'mime-type' => $target_data['mime-type'],
-							'filesize'  => $target_data['filesize'],
-						),
-					);
+					$diff       = $new_diff;
+					$best_match = $target_data;
 				}
 			}
+
+			if ( null === $best_match ) {
+				continue;
+			}
+
+			$convert_sizes[ $size ] = array(
+				'source_file'  => $file_path . '/' . $size_data['file'],
+				'replace_file' => $target_file_path . '/' . $best_match['file'],
+				'source_data'  => array(
+					'file'      => $size_data['file'],
+					'width'     => $best_match['width'],
+					'height'    => $best_match['height'],
+					'mime-type' => isset( $best_match['mime-type'] ) ? $best_match['mime-type'] : '',
+					'filesize'  => isset( $best_match['filesize'] ) ? $best_match['filesize'] : 0,
+				),
+			);
 		}
 
 		return $convert_sizes;

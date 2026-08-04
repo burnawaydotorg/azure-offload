@@ -347,7 +347,7 @@ class WindowsAzureStorageUtil {
 
 			if ( Windows_Azure_Helper::DEV_STORE_NAME === $storage_account_name ) {
 				// Use development storage.
-				$url = sprintf( '%1$s%2%s/%3$s/%4$s',
+				$url = sprintf( '%1$s%2$s/%3$s/%4$s',
 					$protocol,
 					$blob_storage_host_name,
 					$azure_storage_account_name,

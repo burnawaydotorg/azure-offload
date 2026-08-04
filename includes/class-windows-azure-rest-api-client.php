@@ -69,6 +69,25 @@ class Windows_Azure_Rest_Api_Client {
 	const API_REQUEST_BULK_SIZE = 100;
 
 	/**
+	 * Maximum blob size uploaded with a single Put Blob request (in bytes).
+	 * Larger files are uploaded in chunks via Put Block / Put Block List.
+	 *
+	 * @since 5.0.0
+	 *
+	 * @const int
+	 */
+	const API_SINGLE_PUT_BLOB_LIMIT = 67108864;
+
+	/**
+	 * Block size for chunked uploads (in bytes).
+	 *
+	 * @since 5.0.0
+	 *
+	 * @const int
+	 */
+	const API_PUT_BLOCK_SIZE = 4194304;
+
+	/**
 	 * Blob API endpoint pattern.
 	 *
 	 * @since 4.0.0
@@ -526,11 +545,17 @@ class Windows_Azure_Rest_Api_Client {
 	protected function make_request( $method, $url, $headers = array(), $body = '' ) {
 		$date = gmdate( 'D, d M Y H:i:s T', time() );
 
-		// Build default headers
+		/*
+		 * Build default headers.
+		 *
+		 * Note: only x-ms-date is sent. Per the Azure SharedKey specification, when
+		 * x-ms-date is present the service treats the Date header as empty while
+		 * validating the signature, so sending a real Date header (and signing its
+		 * value) would make every request fail authentication.
+		 */
 		$default_headers = array(
 			self::API_HEADER_MS_VERSION => self::API_VERSION,
 			self::API_HEADER_MS_DATE    => $date,
-			'Date'                      => $date,
 		);
 
 		// Merge with provided headers
@@ -648,7 +673,7 @@ class Windows_Azure_Rest_Api_Client {
 		$body = wp_remote_retrieve_body( $response );
 
 		try {
-			return new Windows_Azure_List_Containers_Response( $body, $prefix, $max_results );
+			return new Windows_Azure_List_Containers_Response( $body, $prefix, $max_results, '', $this );
 		} catch ( Exception $exception ) {
 			return new \WP_Error( 500, $exception->getMessage() );
 		}
@@ -834,7 +859,7 @@ class Windows_Azure_Rest_Api_Client {
 		$body = wp_remote_retrieve_body( $response );
 
 		try {
-			return new Windows_Azure_List_Blobs_Response( $body, $prefix, $max_results, $container );
+			return new Windows_Azure_List_Blobs_Response( $body, $prefix, $max_results, $container, $this );
 		} catch ( Exception $exception ) {
 			return new \WP_Error( 500, $exception->getMessage() );
 		}
@@ -1143,6 +1168,19 @@ class Windows_Azure_Rest_Api_Client {
 		$file_path = $contents_provider->get_file_path();
 		$file_size = filesize( $file_path );
 
+		/**
+		 * Filter the size above which uploads switch to chunked Put Block uploads.
+		 *
+		 * @since 5.0.0
+		 *
+		 * @param int $limit Single-request upload limit in bytes.
+		 */
+		$single_put_limit = apply_filters( 'azure_blob_single_put_blob_limit', self::API_SINGLE_PUT_BLOB_LIMIT );
+
+		if ( $file_size > $single_put_limit ) {
+			return $this->_put_blob_blocks( $container, $file_path, $remote_path, $content_type );
+		}
+
 		$url = sprintf(
 			self::API_BLOB_ENDPOINT . '%s/%s',
 			$this->_account_name,
@@ -1150,10 +1188,11 @@ class Windows_Azure_Rest_Api_Client {
 			$remote_path
 		);
 
+		// Header names must match $_signature_headers exactly so they are signed.
 		$headers = array(
-			self::API_HEADER_BLOB_TYPE   => 'BlockBlob',
-			self::API_HEADER_CONTENT_TYPE => $content_type,
-			'Content-Length'              => $file_size,
+			self::API_HEADER_BLOB_TYPE => 'BlockBlob',
+			'Content-Type'             => $content_type,
+			'Content-Length'           => $file_size,
 		);
 
 		// Read file contents
@@ -1167,6 +1206,116 @@ class Windows_Azure_Rest_Api_Client {
 
 		$status_code = wp_remote_retrieve_response_code( $response );
 		if ( $status_code !== 201 ) {
+			return new \WP_Error(
+				$status_code,
+				wp_remote_retrieve_response_message( $response )
+			);
+		}
+
+		return $this->_build_api_endpoint_url( $container . '/' . $remote_path );
+	}
+
+	/**
+	 * Upload a blob in chunks using Put Block / Put Block List so large files
+	 * are never loaded into memory at once.
+	 *
+	 * @since 5.0.0
+	 *
+	 * @param string $container    Container name.
+	 * @param string $file_path    Local file path.
+	 * @param string $remote_path  Remote path.
+	 * @param string $content_type File content type.
+	 *
+	 * @return string|WP_Error Newly put blob URI or WP_Error on failure.
+	 */
+	protected function _put_blob_blocks( $container, $file_path, $remote_path, $content_type ) {
+		$handle = fopen( $file_path, 'rb' );
+		if ( false === $handle ) {
+			return new \WP_Error( -1, __( 'Unable to open file for reading.', 'windows-azure-storage' ) );
+		}
+
+		$block_ids = array();
+		$index     = 0;
+
+		while ( ! feof( $handle ) ) {
+			$chunk = fread( $handle, self::API_PUT_BLOCK_SIZE );
+			if ( false === $chunk ) {
+				fclose( $handle );
+
+				return new \WP_Error( -1, __( 'Unable to read file chunk.', 'windows-azure-storage' ) );
+			}
+
+			if ( '' === $chunk ) {
+				break;
+			}
+
+			// All block ids must have the same length before encoding.
+			$block_id = base64_encode( sprintf( 'block-%08d', $index ) );
+
+			$url = sprintf(
+				self::API_BLOB_ENDPOINT . '%s/%s?%s',
+				$this->_account_name,
+				$container,
+				$remote_path,
+				http_build_query(
+					array(
+						'comp'    => 'block',
+						'blockid' => $block_id,
+					)
+				)
+			);
+
+			$response = $this->make_request( 'PUT', $url, array( 'Content-Length' => strlen( $chunk ) ), $chunk );
+
+			if ( is_wp_error( $response ) ) {
+				fclose( $handle );
+
+				return $response;
+			}
+
+			$status_code = wp_remote_retrieve_response_code( $response );
+			if ( 201 !== $status_code ) {
+				fclose( $handle );
+
+				return new \WP_Error(
+					$status_code,
+					wp_remote_retrieve_response_message( $response )
+				);
+			}
+
+			$block_ids[] = $block_id;
+			$index++;
+		}
+
+		fclose( $handle );
+
+		$block_list = '<?xml version="1.0" encoding="utf-8"?><BlockList>';
+		foreach ( $block_ids as $block_id ) {
+			$block_list .= '<Latest>' . $block_id . '</Latest>';
+		}
+		$block_list .= '</BlockList>';
+
+		$commit_url = sprintf(
+			self::API_BLOB_ENDPOINT . '%s/%s?comp=blocklist',
+			$this->_account_name,
+			$container,
+			$remote_path
+		);
+
+		$commit_headers = array(
+			'Content-Type'                        => 'application/xml',
+			'Content-Length'                      => strlen( $block_list ),
+			self::API_HEADER_MS_BLOB_CONTENT_TYPE => $content_type,
+		);
+
+		$response = $this->make_request( 'PUT', $commit_url, $commit_headers, $block_list );
+
+		if ( is_wp_error( $response ) ) {
+			return $response;
+		}
+
+		$status_code = wp_remote_retrieve_response_code( $response );
+		if ( 201 !== $status_code ) {
 			return new \WP_Error(
 				$status_code,
 				wp_remote_retrieve_response_message( $response )

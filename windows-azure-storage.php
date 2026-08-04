@@ -112,6 +112,7 @@ require_once MSFT_AZURE_PLUGIN_PATH . 'windows-azure-storage-dialog.php';
 require_once MSFT_AZURE_PLUGIN_PATH . 'windows-azure-storage-util.php';
 require_once MSFT_AZURE_PLUGIN_PATH . 'includes/class-windows-azure-rest-api-client.php';
 require_once MSFT_AZURE_PLUGIN_PATH . 'includes/class-windows-azure-generic-list-response.php';
+require_once MSFT_AZURE_PLUGIN_PATH . 'includes/class-windows-azure-blob-item.php';
 require_once MSFT_AZURE_PLUGIN_PATH . 'includes/class-windows-azure-list-containers-response.php';
 require_once MSFT_AZURE_PLUGIN_PATH . 'includes/class-windows-azure-list-blobs-response.php';
 require_once MSFT_AZURE_PLUGIN_PATH . 'includes/class-windows-azure-config-provider.php';
@@ -127,8 +128,6 @@ if ( defined( 'WP_CLI' ) && WP_CLI ) {
 	require_once MSFT_AZURE_PLUGIN_PATH . 'bin/wp-cli.php';
 	require_once MSFT_AZURE_PLUGIN_PATH . 'includes/compat.php';
 }
-
-require_once MSFT_AZURE_PLUGIN_PATH . 'vendor/autoload.php';
 
 // Check prerequisite for plugin.
 register_activation_hook( __FILE__, 'windows_azure_plugin_check_prerequisite' );
@@ -228,10 +227,10 @@ function windows_azure_plugin_check_prerequisite() {
 			)
 		);
 	}
-	$wp_compat = version_compare( $wp_version, '5.7', '>=' );
+	$wp_compat = version_compare( $wp_version, '6.6', '>=' );
 	if ( ! $wp_compat ) {
 		deactivate_plugins( plugin_basename( __FILE__ ) );
-		wp_die( esc_html__( 'Microsoft Azure Storage for WordPress requires at least WordPress 5.7', 'windows-azure-storage' ) );
+		wp_die( esc_html__( 'Microsoft Azure Storage for WordPress requires at least WordPress 6.6', 'windows-azure-storage' ) );
 	}
 }
 
@@ -334,7 +333,7 @@ function windows_azure_storage_new_media_object( $args ) {
 	$container = \Windows_Azure_Helper::get_default_container();
 
 	$upload_dir = \Windows_Azure_Helper::wp_upload_dir();
-	if ( DIRECTORY_SEPARATOR === $upload_dir['subdir'][0] ) {
+	if ( '' !== $upload_dir['subdir'] && DIRECTORY_SEPARATOR === $upload_dir['subdir'][0] ) {
 		$upload_dir['subdir'] = substr( $upload_dir['subdir'], 1 );
 	}
 
@@ -521,7 +520,8 @@ function windows_azure_storage_wp_generate_attachment_metadata( $data, $post_id 
 				);
 			}
 		} catch ( Exception $e ) {
-			echo '<p>', sprintf( esc_html__( 'Error in uploading file. Error: %s', 'windows-azure-storage' ), esc_html( $e->getMessage() ) ), '</p>';
+			// Do not echo: this filter runs inside AJAX/REST upload requests and output corrupts the JSON response.
+			error_log( sprintf( 'Microsoft Azure Storage: error uploading file for attachment %d: %s', $post_id, $e->getMessage() ) );
 
 			return $data;
 		}
@@ -603,7 +603,8 @@ function windows_azure_storage_wp_generate_attachment_metadata( $data, $post_id 
 		) );
 
 	} catch ( Exception $e ) {
-		echo '<p>', sprintf( esc_html__( 'Error in uploading file. Error: %s', 'windows-azure-storage' ), esc_html( $e->getMessage() ) ), '</p>';
+		// Do not echo: this filter runs inside AJAX/REST upload requests and output corrupts the JSON response.
+		error_log( sprintf( 'Microsoft Azure Storage: error uploading file for attachment %d: %s', $post_id, $e->getMessage() ) );
 	}
 
 	return $data;
@@ -1018,7 +1019,14 @@ function windows_azure_storage_query_azure_attachments() {
 	$credentials = Windows_Azure_Config_Provider::get_account_credentials();
 	$client      = new Windows_Azure_Rest_Api_Client( $credentials['account_name'], $credentials['account_key'] );
 	$blobs       = $client->list_blobs( Windows_Azure_Helper::get_default_container(), $query['s'], (int) $query['posts_per_page'], $next_marker );
-	setcookie( 'azure_next_marker', $blobs->get_next_marker() );
+
+	if ( is_wp_error( $blobs ) ) {
+		wp_send_json_error( array( 'message' => $blobs->get_error_message() ) );
+
+		return;
+	}
+
+	setcookie( 'azure_next_marker', (string) $blobs->get_next_marker() );
 	foreach ( $blobs as $blob ) {
 		$blob_name       = $blob->getName();
 		$blob_properties = $blob->getProperties();

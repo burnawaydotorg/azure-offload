@@ -3,6 +3,30 @@
 All notable changes to this project will be documented in this file, per [the Keep a Changelog standard](http://keepachangelog.com/).
 
 ## [Unreleased] - TBD
+### Fixed
+- Fatal parse error on plugin load: `Blob_Item` was declared as a nested class inside `Windows_Azure_List_Blobs_Response`; it is now the top-level `Windows_Azure_Blob_Item` class.
+- SharedKey request signing: the client sent both `Date` and `x-ms-date` headers while signing the real `Date` value, which Azure rejects; only `x-ms-date` is sent now.
+- SharedKey request signing: `put_blob()` set a lowercase `content-type` header that was skipped by the signature computation, causing authentication failures on uploads.
+- Paginated listings fatal error: the REST client is now passed into list response objects so lazy loading past the first page works.
+- Azure list responses are stripped of their UTF-8 BOM before XML parsing.
+- The media browser AJAX handler now returns a JSON error instead of fataling when the blob listing fails.
+- Upload and media-replace error paths no longer echo output inside AJAX/REST requests (which corrupted JSON responses); errors are logged instead.
+- PHP 8 warnings: empty upload subdir offset access in the XML-RPC path, undefined size index in media replace nearest-size matching, and a malformed `sprintf` placeholder in the development-storage URL.
+- `Windows_Azure_Helper::list_blobs()` static cache never stored results; it now caches per container.
+- `Windows_Azure_Helper::copy_media_to_blob_storage()` parameters renamed to reflect the actual copy direction, and blob properties are set on the copy target.
+- Blob dates from list responses now display in the media browser (`Last-Modified` XML key was not recognized).
+
+### Changed
+- Large uploads (over 64MB, filterable via `azure_blob_single_put_blob_limit`) are sent in 4MB chunks via Put Block / Put Block List instead of loading the whole file into memory.
+- The storage account key field on the settings page is now a password input.
+- Minimum WordPress version enforced at activation raised from 5.7 to 6.6 to match the plugin header.
+
+### Removed
+- Removed the retired `microsoft/azure-storage-blob` / `azure-storage-common` SDK and its dependencies from the vendored tree (the 5.0.0 REST refactor left them committed but unused), along with the runtime Composer autoloader.
+
+### Developer
+- CI workflows now run on the `main` branch; WordPress.org deploy workflows are restricted to the upstream `10up/windows-azure-storage` repository.
+- Regenerated `composer.lock` (it was out of sync with `composer.json`, breaking `composer install` in CI) and slimmed dev dependencies to the PHPCompatibilityWP toolchain, resolving a security advisory in the old toolchain (CVE-2026-45293).
 
 ## [5.0.0] - 2025-01-23
 ### Changed

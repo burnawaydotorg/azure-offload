@@ -47,13 +47,16 @@ class Windows_Azure_List_Containers_Response extends Windows_Azure_Generic_List_
 	 * @param string $prefix Search prefix.
 	 * @param int $max_results Max results per one request.
 	 * @param string $path Unused.
+	 * @param Windows_Azure_Rest_Api_Client|null $rest_api_client REST client used for lazy loading of further pages.
 	 *
 	 * @since 5.0.0
 	 *
 	 */
-	public function __construct( $xml_response, $prefix = '', $max_results = Windows_Azure_Rest_Api_Client::API_REQUEST_BULK_SIZE, $path = '' ) {
+	public function __construct( $xml_response, $prefix = '', $max_results = Windows_Azure_Rest_Api_Client::API_REQUEST_BULK_SIZE, $path = '', $rest_api_client = null ) {
 		// Parse XML response
 		if ( is_string( $xml_response ) ) {
+			// Azure list responses are prefixed with a UTF-8 BOM which breaks SimpleXML.
+			$xml_response = preg_replace( '/^\xEF\xBB\xBF/', '', $xml_response );
 			libxml_use_internal_errors( true );
 			$xml = simplexml_load_string( $xml_response );
 			if ( false === $xml ) {
@@ -67,6 +70,8 @@ class Windows_Azure_List_Containers_Response extends Windows_Azure_Generic_List_
 		$next_marker = isset( $xml->NextMarker ) ? (string) $xml->NextMarker : '';
 
 		parent::__construct( $next_marker, $prefix, $max_results, $path );
+
+		$this->_rest_client = $rest_api_client;
 
 		// Parse containers
 		if ( isset( $xml->Containers->Container ) ) {
@@ -86,9 +91,13 @@ class Windows_Azure_List_Containers_Response extends Windows_Azure_Generic_List_
 	 * @param string $next_marker Offset marker.
 	 * @param string $path        Optional path. Unused.
 	 *
-	 * @return WP_Error|Windows_Azure_List_Containers_Response Containers list iterator class or WP_Error on failure.
+	 * @return null|WP_Error|Windows_Azure_List_Containers_Response Containers list iterator class or WP_Error on failure.
 	 */
 	protected function _list_items( $prefix, $max_results, $next_marker, $path ) {
+		if ( ! $this->_rest_client instanceof Windows_Azure_Rest_Api_Client ) {
+			return null;
+		}
+
 		return $this->_rest_client->list_containers( $prefix, $max_results, $next_marker );
 	}
 }

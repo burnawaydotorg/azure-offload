@@ -273,9 +273,9 @@ function windows_azure_storage_setting_account_key() {
 	$storage_account_key = Windows_Azure_Helper::get_account_key();
 
 	if ( defined( 'MICROSOFT_AZURE_ACCOUNT_KEY' ) ) {
-		echo '<input type="text" class="large-text" value="', esc_attr( $storage_account_key ), '" readonly disabled>';
+		echo '<input type="password" class="large-text" value="', esc_attr( $storage_account_key ), '" readonly disabled autocomplete="off">';
 	} else {
-		echo '<input type="text" name="azure_storage_account_primary_access_key" class="large-text" value="', esc_attr( $storage_account_key ), '">';
+		echo '<input type="password" name="azure_storage_account_primary_access_key" class="large-text" value="', esc_attr( $storage_account_key ), '" autocomplete="off">';
 	}
 
 	echo '<p>';

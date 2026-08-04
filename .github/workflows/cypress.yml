@@ -3,10 +3,12 @@ name: E2E test
 on:
   push:
     branches:
+      - main
       - develop
       - trunk
   pull_request:
     branches:
+      - main
       - develop
 
 permissions:

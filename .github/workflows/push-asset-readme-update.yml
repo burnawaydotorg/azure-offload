@@ -8,6 +8,8 @@ on:
 jobs:
   trunk:
     name: Push to trunk
+    # WordPress.org SVN updates only apply to the upstream plugin repository.
+    if: github.repository == '10up/windows-azure-storage'
     runs-on: ubuntu-latest
     permissions:
       contents: write

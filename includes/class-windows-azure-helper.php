@@ -365,17 +365,16 @@ class Windows_Azure_Helper {
 	 * @return WP_Error|Windows_Azure_List_Blobs_Response Blobs iterator class or WP_Error on failure.
 	 */
 	static public function list_blobs( $container, $account_name = '', $account_key = '', $refresh = false ) {
-		static $blobs_list;
+		static $blobs_list = array();
 
-		$containers_list = array();
-		if ( null === $blobs_list || $refresh ) {
+		if ( ! isset( $blobs_list[ $container ] ) || $refresh ) {
 			list( $account_name, $account_key ) = self::get_api_credentials( $account_name, $account_key );
 			$rest_api_client = new Windows_Azure_Rest_Api_Client( $account_name, $account_key );
 
-			$containers_list = $rest_api_client->list_blobs( $container );
+			$blobs_list[ $container ] = $rest_api_client->list_blobs( $container );
 		}
 
-		return $containers_list;
+		return $blobs_list[ $container ];
 	}
 
 	/**
@@ -518,22 +517,25 @@ class Windows_Azure_Helper {
 	/**
 	 * Copy media file into same Container.
 	 *
+	 * The blob at $source_path is copied over the blob at $destination_path.
+	 *
 	 * @since 4.0.0
 	 *
 	 * @param string $container_name   Container name.
-	 * @param string $destination_path Destination Path.
-	 * @param string $source_path      Local path.
-	 * @param string $account_name   Account name.
-	 * @param string $account_key    Account key.
-	 * @param int    $cache          Max-age cache
+	 * @param string $source_path      Blob path to copy from.
+	 * @param string $destination_path Blob path to copy to.
+	 * @param string $mime_type        Mime type of the copied blob.
+	 * @param string $account_name     Account name.
+	 * @param string $account_key      Account key.
+	 * @param int    $cache            Max-age cache
 	 *
 	 * @return bool|string|WP_Error False or WP_Error on failure URI on success.
 	 */
-	static public function copy_media_to_blob_storage( $container_name, $destination_path, $source_path, $mime_type, $account_name = '', $account_key = '', $cache = null ) {
+	static public function copy_media_to_blob_storage( $container_name, $source_path, $destination_path, $mime_type, $account_name = '', $account_key = '', $cache = null ) {
 		list( $account_name, $account_key ) = self::get_api_credentials( $account_name, $account_key );
 		$rest_api_client = new Windows_Azure_Rest_Api_Client( $account_name, $account_key );
 
-		$result = $rest_api_client->copy_blob( $container_name, $destination_path, $source_path );
+		$result = $rest_api_client->copy_blob( $container_name, $source_path, $destination_path );
 		if ( ! $result || is_wp_error( $result ) ) {
 			return $result;
 		}
@@ -543,7 +545,7 @@ class Windows_Azure_Helper {
 			$cache_control = sprintf( "max-age=%d, must-revalidate", $cache_control );
 		}
 
-		$rest_api_client->put_blob_properties( $container_name, $source_path, array(
+		$rest_api_client->put_blob_properties( $container_name, $destination_path, array(
 			Windows_Azure_Rest_Api_Client::API_HEADER_MS_BLOB_CONTENT_TYPE  => $mime_type,
 			Windows_Azure_Rest_Api_Client::API_HEADER_MS_BLOB_CACHE_CONTROL => apply_filters( 'windows_azure_blob_cache_control', $cache_control ),
 			Windows_Azure_Rest_Api_Client::API_HEADER_MS_ACCESS_TIER        => apply_filters( 'windows_azure_blob_access_tier', 'Hot' ),
@@ -698,9 +700,17 @@ class Windows_Azure_Helper {
 	 * @since 5.0.0
 	 */
 	public static function get_formatted_date_for_blob( $blob_properties ) {
-		// Handle array format (from new REST API implementation)
-		if ( is_array( $blob_properties ) && isset( $blob_properties[ Windows_Azure_Rest_Api_Client::API_HEADER_LAST_MODIFIED ] ) ) {
-			return $blob_properties[ Windows_Azure_Rest_Api_Client::API_HEADER_LAST_MODIFIED ];
+		// Handle array format (lowercase key from HEAD responses, XML element name from list responses).
+		if ( is_array( $blob_properties ) ) {
+			if ( isset( $blob_properties[ Windows_Azure_Rest_Api_Client::API_HEADER_LAST_MODIFIED ] ) ) {
+				return $blob_properties[ Windows_Azure_Rest_Api_Client::API_HEADER_LAST_MODIFIED ];
+			}
+
+			if ( isset( $blob_properties['Last-Modified'] ) ) {
+				return $blob_properties['Last-Modified'];
+			}
+
+			return '';
 		}
 
 		// Handle string format (direct header value)
